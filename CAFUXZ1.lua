@@ -1,3 +1,4 @@
+
 local suc, err = pcall(function()
     return game:GetService("Players")
 end)
@@ -1178,15 +1179,20 @@ end
 
 
 
--- ============================================
--- ANTI-LAG SYSTEM v2.0 (Enhanced Resolution)
+
+    -- ============================================
+-- ANTI-LAG SYSTEM v3.0 (Separado - Textura & Resolução)
 -- ============================================
 local AntiLagSystem = {
-    Active = false,
-    ResolutionEnabled = false,
+    -- Estados separados
+    TexturesActive = false,
+    ResolutionActive = false,
+    
     OriginalStates = {},
-    Connection = nil,
+    TextureConnection = nil,
     CameraConnection = nil,
+    
+    -- Configurações de resolução
     CurrentResolution = 0.65,
     MinResolution = 0.3,
     MaxResolution = 1.0,
@@ -1200,8 +1206,16 @@ local AntiLagSystem = {
         end
     end,
     
-    -- Limpa texturas e otimiza materiais (metodo agressivo)
-    CleanMap = function(self)
+    -- ============================================
+    -- SISTEMA DE TEXTURAS (Separado)
+    -- ============================================
+    EnableTextures = function(self)
+        if self.TexturesActive then 
+            notifyWarning("Texturas", "Ja esta otimizado!", 2)
+            return 
+        end
+        
+        self.TexturesActive = true
         local count = 0
         local batchSize = 100
         local descendants = game.Workspace:GetDescendants()
@@ -1227,7 +1241,6 @@ local AntiLagSystem = {
                         obj.Material = Enum.Material.SmoothPlastic
                         obj.Reflectance = 0
                         
-                        -- Remove texturas de MeshParts
                         if obj:IsA("MeshPart") and obj.TextureID ~= "" then
                             self:SaveState(obj, "TextureID", obj.TextureID)
                             obj.TextureID = ""
@@ -1235,7 +1248,7 @@ local AntiLagSystem = {
                         count = count + 1
                     end
                     
-                    -- Desativa Particles e Trails
+                    -- Desativa Efeitos
                     if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or 
                        obj:IsA("Fire") or obj:IsA("Sparkles") then
                         self:SaveState(obj, "Enabled", obj.Enabled)
@@ -1249,80 +1262,23 @@ local AntiLagSystem = {
                 task.wait()
                 processBatch(endIdx + 1)
             else
-                addLog("Anti-Lag: " .. count .. " objetos otimizados", "success")
-                notifySuccess("Anti-Lag", count .. " objetos otimizados!", 3)
+                notifySuccess("Texturas", count .. " objetos otimizados!", 3)
+                addLog("Texturas otimizadas: " .. count, "success")
             end
         end
         
         processBatch(1)
-    end,
-    
-    -- Sistema de Resolucao Dinamica (Camera Trick)
-    EnableResolution = function(self, scale)
-        if self.ResolutionEnabled then return end
-        
-        self.CurrentResolution = math.clamp(scale or 0.65, self.MinResolution, self.MaxResolution)
-        self.ResolutionEnabled = true
-        
-        local Camera = workspace.CurrentCamera
-        
-        self.CameraConnection = RunService.RenderStepped:Connect(function()
-            if not self.ResolutionEnabled then return end
-            -- Aplica matriz de escala na CFrame da camera para reduzir resolucao
-            Camera.CFrame = Camera.CFrame * CFrame.new(0, 0, 0, 1, 0, 0, 0, self.CurrentResolution, 0, 0, 0, 1)
-        end)
-        
-        notifySuccess("Resolucao", "Modo performance ativado: " .. math.floor(self.CurrentResolution * 100) .. "%", 3)
-        addLog("Resolucao reduzida para " .. self.CurrentResolution, "success")
-    end,
-    
-    DisableResolution = function(self)
-        if not self.ResolutionEnabled then return end
-        
-        self.ResolutionEnabled = false
-        
-        if self.CameraConnection then
-            pcall(function()
-                self.CameraConnection:Disconnect()
-            end)
-            self.CameraConnection = nil
-        end
-        
-        notifyWarning("Resolucao", "Modo performance desativado", 2)
-        addLog("Resolucao restaurada", "warning")
-    end,
-    
-    -- Ativa Anti-Lag completo
-    Enable = function(self, resolutionScale)
-        if self.Active then 
-            notifyWarning("Anti-Lag", "Ja esta ativado!", 2)
-            return 
-        end
-        
-        self.Active = true
-        
-        -- Limpa mapa
-        task.spawn(function()
-            self:CleanMap()
-        end)
-        
-        -- Ativa resolucao se solicitado
-        if resolutionScale then
-            self:EnableResolution(resolutionScale)
-        end
         
         -- Monitora novos objetos
-        self.Connection = game.DescendantAdded:Connect(function(obj)
-            if not self.Active then return end
+        self.TextureConnection = game.DescendantAdded:Connect(function(obj)
+            if not self.TexturesActive then return end
             task.wait(0.05)
             
             pcall(function()
                 if obj:IsA("BasePart") or obj:IsA("MeshPart") then
                     obj.Material = Enum.Material.SmoothPlastic
                     obj.Reflectance = 0
-                    if obj:IsA("MeshPart") then
-                        obj.TextureID = ""
-                    end
+                    if obj:IsA("MeshPart") then obj.TextureID = "" end
                 elseif obj:IsA("Decal") or obj:IsA("Texture") then
                     obj:Destroy()
                 elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") then
@@ -1330,29 +1286,18 @@ local AntiLagSystem = {
                 end
             end)
         end)
-        
-        CONFIG.antiLag.enabled = true
     end,
     
-    -- Desativa Anti-Lag e restaura tudo
-    Disable = function(self)
-        if not self.Active then return end
+    DisableTextures = function(self)
+        if not self.TexturesActive then return end
+        self.TexturesActive = false
         
-        self.Active = false
-        CONFIG.antiLag.enabled = false
-        
-        -- Desativa resolucao
-        self:DisableResolution()
-        
-        -- Desconecta monitor
-        if self.Connection then
-            pcall(function()
-                self.Connection:Disconnect()
-            end)
-            self.Connection = nil
+        if self.TextureConnection then
+            pcall(function() self.TextureConnection:Disconnect() end)
+            self.TextureConnection = nil
         end
         
-        -- Restaura estados originais em batch
+        -- Restaura texturas
         task.spawn(function()
             local states = {}
             for obj, props in pairs(self.OriginalStates) do
@@ -1392,55 +1337,105 @@ local AntiLagSystem = {
                     restoreBatch(endIdx + 1)
                 else
                     self.OriginalStates = {}
-                    notifyWarning("Anti-Lag", "Tudo restaurado!", 3)
-                    addLog("Anti-Lag desativado", "warning")
+                    notifyWarning("Texturas", "Restauradas!", 3)
+                    addLog("Texturas restauradas", "warning")
                 end
             end
             
-            if #states > 0 then
-                restoreBatch(1)
-            else
-                notifyWarning("Anti-Lag", "Desativado!", 2)
-            end
+            if #states > 0 then restoreBatch(1) end
         end)
     end,
     
-    -- Atualiza escala de resolucao em tempo real
-    SetResolution = function(self, newScale)
-        if not self.ResolutionEnabled then
-            notifyWarning("Resolucao", "Ative o Anti-Lag primeiro!", 2)
-            return
+    ToggleTextures = function(self)
+        if self.TexturesActive then
+            self:DisableTextures()
+        else
+            self:EnableTextures()
         end
-        
-        self.CurrentResolution = math.clamp(newScale, self.MinResolution, self.MaxResolution)
-        notifySuccess("Resolucao", "Ajustada para " .. math.floor(self.CurrentResolution * 100) .. "%", 2)
-        addLog("Resolucao alterada: " .. self.CurrentResolution, "info")
+        return self.TexturesActive
     end,
     
-    Toggle = function(self)
-        if self.Active then
-            self:Disable()
-        else
-            self:Enable(self.CurrentResolution)
+    -- ============================================
+    -- SISTEMA DE RESOLUCAO (Separado - Tela Esticada)
+    -- ============================================
+    EnableResolution = function(self, scale)
+        if self.ResolutionActive then 
+            -- Apenas atualiza o valor se ja estiver ativo
+            self:SetResolution(scale)
+            return 
         end
-        return self.Active
+        
+        self.CurrentResolution = math.clamp(scale or 0.65, self.MinResolution, self.MaxResolution)
+        self.ResolutionActive = true
+        
+        local Camera = workspace.CurrentCamera
+        
+        self.CameraConnection = RunService.RenderStepped:Connect(function()
+            if not self.ResolutionActive then return end
+            -- Aplica matriz de escala na CFrame da camera
+            Camera.CFrame = Camera.CFrame * CFrame.new(0, 0, 0, 1, 0, 0, 0, self.CurrentResolution, 0, 0, 0, 1)
+        end)
+        
+        notifySuccess("Tela Esticada", "Ativada: " .. math.floor(self.CurrentResolution * 100) .. "%", 3)
+        addLog("Resolucao: " .. self.CurrentResolution, "success")
+    end,
+    
+    DisableResolution = function(self)
+        if not self.ResolutionActive then return end
+        self.ResolutionActive = false
+        
+        if self.CameraConnection then
+            pcall(function() self.CameraConnection:Disconnect() end)
+            self.CameraConnection = nil
+        end
+        
+        notifyWarning("Tela Esticada", "Desativada", 2)
+        addLog("Resolucao normal", "warning")
+    end,
+    
+    SetResolution = function(self, newScale)
+        self.CurrentResolution = math.clamp(newScale, self.MinResolution, self.MaxResolution)
+        notifySuccess("Resolucao", "Ajustada: " .. math.floor(self.CurrentResolution * 100) .. "%", 2)
+    end,
+    
+    ToggleResolution = function(self)
+        if self.ResolutionActive then
+            self:DisableResolution()
+        else
+            self:EnableResolution(self.CurrentResolution)
+        end
+        return self.ResolutionActive
+    end,
+    
+    -- ============================================
+    -- CONTROLES GLOBAIS (Legado - mantem compatibilidade)
+    -- ============================================
+    EnableAll = function(self, resolutionScale)
+        self:EnableTextures()
+        task.wait(0.5)
+        self:EnableResolution(resolutionScale)
+    end,
+    
+    DisableAll = function(self)
+        self:DisableTextures()
+        self:DisableResolution()
     end
 }
 
--- Substitui as funcoes antigas de Anti-Lag
+-- Funcoes globais para compatibilidade
 applyAntiLag = function(resolutionScale)
-    AntiLagSystem:Enable(resolutionScale)
+    AntiLagSystem:EnableAll(resolutionScale)
 end
 
 disableAntiLag = function()
-    AntiLagSystem:Disable()
+    AntiLagSystem:DisableAll()
 end
 
--- Retorna o sistema para acesso global
+-- Acesso global
 getgenv().AntiLagSystem = AntiLagSystem
-
-
-
+    
+        
+            
 
 
 -- ============================================
@@ -2365,8 +2360,8 @@ local function createMainGUI()
     keybindInfo.Parent = toteContent
     
 
-        -- ============================================
-    -- TAB: VISUAL (Conteúdo Atualizado)
+    -- ============================================
+    -- TAB: VISUAL (Conteudo Atualizado - Separado)
     -- ============================================
     local visualContent = tabContents.visual
     
@@ -2380,32 +2375,58 @@ local function createMainGUI()
     visualTitle.TextXAlignment = Enum.TextXAlignment.Left
     visualTitle.Parent = visualContent
     
-    -- Toggle Anti Lag (agora ativa com resolução)
-    createToggle(visualContent, "Anti-Lag + Resolucao", CONFIG.antiLag.enabled, function(val)
-        CONFIG.antiLag.enabled = val
+    -- SEPARADO: Toggle Texturas
+    createToggle(visualContent, "Remover Texturas", false, function(val)
         if val then
-            AntiLagSystem:Enable(AntiLagSystem.CurrentResolution)
+            AntiLagSystem:EnableTextures()
         else
-            AntiLagSystem:Disable()
+            AntiLagSystem:DisableTextures()
         end
     end)
     
-    -- Slider Resolução (0.3 = mais FPS/tela esticada, 1.0 = normal)
-    createSlider(visualContent, "Escala Resolucao (FPS)", 30, 100, AntiLagSystem.CurrentResolution * 100, function(val)
+    -- SEPARADO: Toggle Tela Esticada (Resolucao)
+    createToggle(visualContent, "Tela Esticada (FPS)", false, function(val)
+        if val then
+            AntiLagSystem:EnableResolution(AntiLagSystem.CurrentResolution)
+        else
+            AntiLagSystem:DisableResolution()
+        end
+    end)
+    
+    -- Slider Resolucao (só funciona se Tela Esticada estiver ON)
+    createSlider(visualContent, "Escala da Tela", 30, 100, 65, function(val)
         local scale = val / 100
         AntiLagSystem:SetResolution(scale)
     end)
     
-    -- Info sobre resolução
+    -- Info
     local resInfo = Instance.new("TextLabel")
-    resInfo.Size = UDim2.new(1, 0, 0, 40)
+    resInfo.Size = UDim2.new(1, 0, 0, 50)
     resInfo.BackgroundTransparency = 1
-    resInfo.Text = "Dica: Valores menores = mais FPS, imagem mais esticada\\nRecomendado: 50-65% para balanceamento"
+    resInfo.Text = "Tela Esticada: Reduz resolucao para ganhar FPS\\nTexturas: Remove detalhes visuais do mapa\\nUse separadamente ou juntos!"
     resInfo.TextColor3 = CONFIG.customColors.textMuted
     resInfo.TextSize = 11
     resInfo.Font = Enum.Font.Gotham
     resInfo.TextWrapped = true
     resInfo.Parent = visualContent
+    
+    -- Botao Ativar Tudo (Anti-Lag completo)
+    local allBtn = Instance.new("TextButton")
+    allBtn.Size = UDim2.new(1, 0, 0, 40)
+    allBtn.BackgroundColor3 = CONFIG.customColors.success
+    allBtn.Text = "Ativar Tudo (Max FPS)"
+    allBtn.TextColor3 = Color3.new(1, 1, 1)
+    allBtn.TextSize = 14
+    allBtn.Font = Enum.Font.GothamBold
+    allBtn.Parent = visualContent
+    
+    local allCorner = Instance.new("UICorner")
+    allCorner.CornerRadius = UDim.new(0, 8)
+    allCorner.Parent = allBtn
+    
+    allBtn.MouseButton1Click:Connect(function()
+        AntiLagSystem:EnableAll(AntiLagSystem.CurrentResolution)
+    end)
     
     -- Toggle Ping Monitor
     createToggle(visualContent, "Monitor de Ping", CONFIG.pingOptimization.showPingMonitor, function(val)
@@ -2421,6 +2442,7 @@ local function createMainGUI()
             arthurSphere = nil
         end
     end)
+
 
     
     -- ============================================
