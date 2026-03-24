@@ -1176,142 +1176,272 @@ local function createIntro()
     end
 end
 
--- ============================================
--- ANTI LAG
--- ============================================
-local function saveOriginalState(obj, property, value)
-    if not obj or typeof(obj) ~= "Instance" then return end
-    if not originalStates[obj] then originalStates[obj] = {} end
-    if originalStates[obj][property] == nil then
-        originalStates[obj][property] = value
-    end
-end
 
-local function applyAntiLag()
-    if antiLagActive then return end
-    antiLagActive = true
+
+-- ============================================
+-- ANTI-LAG SYSTEM v2.0 (Enhanced Resolution)
+-- ============================================
+local AntiLagSystem = {
+    Active = false,
+    ResolutionEnabled = false,
+    OriginalStates = {},
+    Connection = nil,
+    CameraConnection = nil,
+    CurrentResolution = 0.65,
+    MinResolution = 0.3,
+    MaxResolution = 1.0,
     
-    local batchSize = 150
-    local Stuff = {}
+    -- Salva estado original
+    SaveState = function(self, obj, property, value)
+        if not obj or typeof(obj) ~= "Instance" then return end
+        if not self.OriginalStates[obj] then self.OriginalStates[obj] = {} end
+        if self.OriginalStates[obj][property] == nil then
+            self.OriginalStates[obj][property] = value
+        end
+    end,
     
-    local function processBatch(descendants, startIdx)
-        local endIdx = math.min(startIdx + batchSize - 1, #descendants)
+    -- Limpa texturas e otimiza materiais (metodo agressivo)
+    CleanMap = function(self)
+        local count = 0
+        local batchSize = 100
+        local descendants = game.Workspace:GetDescendants()
         
-        for i = startIdx, endIdx do
-            local v = descendants[i]
-            if not v then continue end
+        local function processBatch(startIdx)
+            local endIdx = math.min(startIdx + batchSize - 1, #descendants)
+            
+            for i = startIdx, endIdx do
+                local obj = descendants[i]
+                if not obj then continue end
+                
+                pcall(function()
+                    -- Remove Decals e Textures
+                    if obj:IsA("Decal") or obj:IsA("Texture") then
+                        self:SaveState(obj, "Parent", obj.Parent)
+                        obj:Destroy()
+                        count = count + 1
+                    
+                    -- Otimiza Partes
+                    elseif obj:IsA("BasePart") or obj:IsA("MeshPart") or obj:IsA("UnionOperation") then
+                        self:SaveState(obj, "Material", obj.Material)
+                        self:SaveState(obj, "Reflectance", obj.Reflectance)
+                        obj.Material = Enum.Material.SmoothPlastic
+                        obj.Reflectance = 0
+                        
+                        -- Remove texturas de MeshParts
+                        if obj:IsA("MeshPart") and obj.TextureID ~= "" then
+                            self:SaveState(obj, "TextureID", obj.TextureID)
+                            obj.TextureID = ""
+                        end
+                        count = count + 1
+                    end
+                    
+                    -- Desativa Particles e Trails
+                    if obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Smoke") or 
+                       obj:IsA("Fire") or obj:IsA("Sparkles") then
+                        self:SaveState(obj, "Enabled", obj.Enabled)
+                        obj.Enabled = false
+                        count = count + 1
+                    end
+                end)
+            end
+            
+            if endIdx < #descendants then
+                task.wait()
+                processBatch(endIdx + 1)
+            else
+                addLog("Anti-Lag: " .. count .. " objetos otimizados", "success")
+                notifySuccess("Anti-Lag", count .. " objetos otimizados!", 3)
+            end
+        end
+        
+        processBatch(1)
+    end,
+    
+    -- Sistema de Resolucao Dinamica (Camera Trick)
+    EnableResolution = function(self, scale)
+        if self.ResolutionEnabled then return end
+        
+        self.CurrentResolution = math.clamp(scale or 0.65, self.MinResolution, self.MaxResolution)
+        self.ResolutionEnabled = true
+        
+        local Camera = workspace.CurrentCamera
+        
+        self.CameraConnection = RunService.RenderStepped:Connect(function()
+            if not self.ResolutionEnabled then return end
+            -- Aplica matriz de escala na CFrame da camera para reduzir resolucao
+            Camera.CFrame = Camera.CFrame * CFrame.new(0, 0, 0, 1, 0, 0, 0, self.CurrentResolution, 0, 0, 0, 1)
+        end)
+        
+        notifySuccess("Resolucao", "Modo performance ativado: " .. math.floor(self.CurrentResolution * 100) .. "%", 3)
+        addLog("Resolucao reduzida para " .. self.CurrentResolution, "success")
+    end,
+    
+    DisableResolution = function(self)
+        if not self.ResolutionEnabled then return end
+        
+        self.ResolutionEnabled = false
+        
+        if self.CameraConnection then
+            pcall(function()
+                self.CameraConnection:Disconnect()
+            end)
+            self.CameraConnection = nil
+        end
+        
+        notifyWarning("Resolucao", "Modo performance desativado", 2)
+        addLog("Resolucao restaurada", "warning")
+    end,
+    
+    -- Ativa Anti-Lag completo
+    Enable = function(self, resolutionScale)
+        if self.Active then 
+            notifyWarning("Anti-Lag", "Ja esta ativado!", 2)
+            return 
+        end
+        
+        self.Active = true
+        
+        -- Limpa mapa
+        task.spawn(function()
+            self:CleanMap()
+        end)
+        
+        -- Ativa resolucao se solicitado
+        if resolutionScale then
+            self:EnableResolution(resolutionScale)
+        end
+        
+        -- Monitora novos objetos
+        self.Connection = game.DescendantAdded:Connect(function(obj)
+            if not self.Active then return end
+            task.wait(0.05)
             
             pcall(function()
-                if CONFIG.antiLag.parts and (v:IsA("Part") or v:IsA("UnionOperation") or v:IsA("BasePart")) then
-                    saveOriginalState(v, "Material", v.Material)
-                    v.Material = Enum.Material.SmoothPlastic
-                    table.insert(Stuff, v)
-                end
-                
-                if CONFIG.antiLag.particles and (v:IsA("ParticleEmitter") or v:IsA("Smoke") or v:IsA("Explosion") or v:IsA("Sparkles") or v:IsA("Fire")) then
-                    saveOriginalState(v, "Enabled", v.Enabled)
-                    v.Enabled = false
-                    table.insert(Stuff, v)
-                end
-                
-                if CONFIG.antiLag.visualEffects and (v:IsA("BloomEffect") or v:IsA("BlurEffect") or v:IsA("DepthOfFieldEffect") or v:IsA("SunRaysEffect")) then
-                    saveOriginalState(v, "Enabled", v.Enabled)
-                    v.Enabled = false
-                    table.insert(Stuff, v)
-                end
-                
-                if CONFIG.antiLag.textures and (v:IsA("Decal") or v:IsA("Texture")) then
-                    saveOriginalState(v, "Texture", v.Texture)
-                    v.Texture = ""
-                    table.insert(Stuff, v)
-                end
-                
-                if CONFIG.antiLag.sky and v:IsA("Sky") then
-                    saveOriginalState(v, "Parent", v.Parent)
-                    v.Parent = nil
-                    table.insert(Stuff, v)
+                if obj:IsA("BasePart") or obj:IsA("MeshPart") then
+                    obj.Material = Enum.Material.SmoothPlastic
+                    obj.Reflectance = 0
+                    if obj:IsA("MeshPart") then
+                        obj.TextureID = ""
+                    end
+                elseif obj:IsA("Decal") or obj:IsA("Texture") then
+                    obj:Destroy()
+                elseif obj:IsA("ParticleEmitter") or obj:IsA("Trail") then
+                    obj.Enabled = false
                 end
             end)
+        end)
+        
+        CONFIG.antiLag.enabled = true
+    end,
+    
+    -- Desativa Anti-Lag e restaura tudo
+    Disable = function(self)
+        if not self.Active then return end
+        
+        self.Active = false
+        CONFIG.antiLag.enabled = false
+        
+        -- Desativa resolucao
+        self:DisableResolution()
+        
+        -- Desconecta monitor
+        if self.Connection then
+            pcall(function()
+                self.Connection:Disconnect()
+            end)
+            self.Connection = nil
         end
         
-        if endIdx < #descendants then
-            task.wait()
-            processBatch(descendants, endIdx + 1)
-        else
-            STATS.antiLagItems = #Stuff
-            addLog("Anti Lag ATIVADO - " .. #Stuff .. " itens", "success")
-            notifySuccess("🚀 Anti-Lag", #Stuff .. " objetos otimizados com sucesso!", 3)
-        end
-    end
-    
-    local allDescendants = game:GetDescendants()
-    processBatch(allDescendants, 1)
-    
-    antiLagConnection = game.DescendantAdded:Connect(function(v)
-        if not antiLagActive then return end
-        task.wait(0.1)
-        pcall(function()
-            if CONFIG.antiLag.parts and (v:IsA("Part") or v:IsA("UnionOperation") or v:IsA("BasePart")) then
-                saveOriginalState(v, "Material", v.Material)
-                v.Material = Enum.Material.SmoothPlastic
-            end
-        end)
-    end)
-end
-
-local function disableAntiLag()
-    if not antiLagActive then return end
-    antiLagActive = false
-    
-    if antiLagConnection then
-        pcall(function()
-            antiLagConnection:Disconnect()
-        end)
-        antiLagConnection = nil
-    end
-    
-    local states = {}
-    for obj, props in pairs(originalStates) do
-        if obj and typeof(obj) == "Instance" then
-            table.insert(states, {obj = obj, props = props})
-        end
-    end
-    
-    local batchSize = 150
-    local function restoreBatch(startIdx)
-        local endIdx = math.min(startIdx + batchSize - 1, #states)
-        
-        for i = startIdx, endIdx do
-            local data = states[i]
-            local obj = data.obj
-            if obj and obj.Parent then
-                for prop, value in pairs(data.props) do
-                    pcall(function()
-                        if prop == "Parent" then 
-                            obj.Parent = value
-                        else 
-                            obj[prop] = value 
-                        end
-                    end)
+        -- Restaura estados originais em batch
+        task.spawn(function()
+            local states = {}
+            for obj, props in pairs(self.OriginalStates) do
+                if obj and typeof(obj) == "Instance" and obj.Parent then
+                    table.insert(states, {obj = obj, props = props})
                 end
             end
+            
+            local batchSize = 100
+            local function restoreBatch(startIdx)
+                local endIdx = math.min(startIdx + batchSize - 1, #states)
+                
+                for i = startIdx, endIdx do
+                    local data = states[i]
+                    local obj = data.obj
+                    if obj and obj.Parent then
+                        for prop, value in pairs(data.props) do
+                            pcall(function()
+                                if prop == "Parent" then
+                                    if value then obj.Parent = value end
+                                elseif prop == "Enabled" then
+                                    obj.Enabled = value
+                                elseif prop == "Material" then
+                                    obj.Material = value
+                                elseif prop == "Reflectance" then
+                                    obj.Reflectance = value
+                                elseif prop == "TextureID" then
+                                    obj.TextureID = value
+                                end
+                            end)
+                        end
+                    end
+                end
+                
+                if endIdx < #states then
+                    task.wait()
+                    restoreBatch(endIdx + 1)
+                else
+                    self.OriginalStates = {}
+                    notifyWarning("Anti-Lag", "Tudo restaurado!", 3)
+                    addLog("Anti-Lag desativado", "warning")
+                end
+            end
+            
+            if #states > 0 then
+                restoreBatch(1)
+            else
+                notifyWarning("Anti-Lag", "Desativado!", 2)
+            end
+        end)
+    end,
+    
+    -- Atualiza escala de resolucao em tempo real
+    SetResolution = function(self, newScale)
+        if not self.ResolutionEnabled then
+            notifyWarning("Resolucao", "Ative o Anti-Lag primeiro!", 2)
+            return
         end
         
-        if endIdx < #states then
-            task.wait()
-            restoreBatch(endIdx + 1)
-        else
-            originalStates = {}
-            STATS.antiLagItems = 0
-            addLog("Anti Lag DESATIVADO", "warning")
-            notifyWarning("⚠️ Anti-Lag", "Otimização desativada!", 3)
-        end
-    end
+        self.CurrentResolution = math.clamp(newScale, self.MinResolution, self.MaxResolution)
+        notifySuccess("Resolucao", "Ajustada para " .. math.floor(self.CurrentResolution * 100) .. "%", 2)
+        addLog("Resolucao alterada: " .. self.CurrentResolution, "info")
+    end,
     
-    if #states > 0 then
-        restoreBatch(1)
+    Toggle = function(self)
+        if self.Active then
+            self:Disable()
+        else
+            self:Enable(self.CurrentResolution)
+        end
+        return self.Active
     end
+}
+
+-- Substitui as funcoes antigas de Anti-Lag
+applyAntiLag = function(resolutionScale)
+    AntiLagSystem:Enable(resolutionScale)
 end
+
+disableAntiLag = function()
+    AntiLagSystem:Disable()
+end
+
+-- Retorna o sistema para acesso global
+getgenv().AntiLagSystem = AntiLagSystem
+
+
+
+
 
 -- ============================================
 -- MORPH SYSTEM
@@ -2234,30 +2364,48 @@ local function createMainGUI()
     keybindInfo.Font = Enum.Font.Gotham
     keybindInfo.Parent = toteContent
     
-    -- ============================================
-    -- TAB: VISUAL (Conteúdo)
+
+        -- ============================================
+    -- TAB: VISUAL (Conteúdo Atualizado)
     -- ============================================
     local visualContent = tabContents.visual
     
     local visualTitle = Instance.new("TextLabel")
     visualTitle.Size = UDim2.new(1, 0, 0, 30)
     visualTitle.BackgroundTransparency = 1
-    visualTitle.Text = "👁️ VISUAL SETTINGS"
+    visualTitle.Text = "VISUAL SETTINGS"
     visualTitle.TextColor3 = CONFIG.customColors.accent
     visualTitle.TextSize = 18
     visualTitle.Font = Enum.Font.GothamBold
     visualTitle.TextXAlignment = Enum.TextXAlignment.Left
     visualTitle.Parent = visualContent
     
-    -- Toggle Anti Lag
-    createToggle(visualContent, "Anti-Lag", CONFIG.antiLag.enabled, function(val)
+    -- Toggle Anti Lag (agora ativa com resolução)
+    createToggle(visualContent, "Anti-Lag + Resolucao", CONFIG.antiLag.enabled, function(val)
         CONFIG.antiLag.enabled = val
         if val then
-            applyAntiLag()
+            AntiLagSystem:Enable(AntiLagSystem.CurrentResolution)
         else
-            disableAntiLag()
+            AntiLagSystem:Disable()
         end
     end)
+    
+    -- Slider Resolução (0.3 = mais FPS/tela esticada, 1.0 = normal)
+    createSlider(visualContent, "Escala Resolucao (FPS)", 30, 100, AntiLagSystem.CurrentResolution * 100, function(val)
+        local scale = val / 100
+        AntiLagSystem:SetResolution(scale)
+    end)
+    
+    -- Info sobre resolução
+    local resInfo = Instance.new("TextLabel")
+    resInfo.Size = UDim2.new(1, 0, 0, 40)
+    resInfo.BackgroundTransparency = 1
+    resInfo.Text = "Dica: Valores menores = mais FPS, imagem mais esticada\\nRecomendado: 50-65% para balanceamento"
+    resInfo.TextColor3 = CONFIG.customColors.textMuted
+    resInfo.TextSize = 11
+    resInfo.Font = Enum.Font.Gotham
+    resInfo.TextWrapped = true
+    resInfo.Parent = visualContent
     
     -- Toggle Ping Monitor
     createToggle(visualContent, "Monitor de Ping", CONFIG.pingOptimization.showPingMonitor, function(val)
@@ -2273,6 +2421,7 @@ local function createMainGUI()
             arthurSphere = nil
         end
     end)
+
     
     -- ============================================
     -- TAB: MORPH (Conteúdo)
