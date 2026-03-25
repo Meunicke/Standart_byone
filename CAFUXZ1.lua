@@ -23,13 +23,31 @@ local CoreGui = game:GetService("CoreGui")
 local Debris = game:GetService("Debris")
 local Stats = game:GetService("Stats")
 
+-- Esperar jogador carregar
 local LocalPlayer = Players.LocalPlayer
-local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-local HRP = Character:WaitForChild("HumanoidRootPart", 5)
-
-while not LocalPlayer.Character do
-    task.wait(0.1)
+if not LocalPlayer then
+    repeat
+        task.wait(0.1)
+        LocalPlayer = Players.LocalPlayer
+    until LocalPlayer
 end
+
+-- Esperar personagem carregar
+local Character = LocalPlayer.Character
+if not Character then
+    Character = LocalPlayer.CharacterAdded:Wait()
+end
+
+local HRP = Character:WaitForChild("HumanoidRootPart", 5)
+if not HRP then
+    warn("HumanoidRootPart não encontrado!")
+end
+
+-- Atualizar Character e HRP quando respawnar
+LocalPlayer.CharacterAdded:Connect(function(char)
+    Character = char
+    HRP = char:WaitForChild("HumanoidRootPart", 5)
+end)
 
 -- ============================================
 -- LIMPEZA ANTI-DUPLICAÇÃO
@@ -65,7 +83,7 @@ local CONFIG = {
     fullBodyTouch = true,
     autoSecondTouch = true,
     scanCooldown = 1.0,
-    
+        
     -- CONTROLE DE AUTO ESCANEAMENTO
     autoScanEnabled = true,
     scanInterval = 0.5,
