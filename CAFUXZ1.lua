@@ -1926,7 +1926,7 @@ local function updateBalls()
                     end
                 end
                 
-                if not alreadyTracked then
+                                if not alreadyTracked then
                     table.insert(balls, obj)
                 end
             end
@@ -1934,408 +1934,130 @@ local function updateBalls()
     end
 end
 
-local function createReachSphere()
-    if reachSphere then
-        pcall(function() reachSphere:Destroy() end)
-    end
-    
-    if not CONFIG.showReachSphere then return end
-    
-    reachSphere = Instance.new("Part")
-    reachSphere.Name = "CAFUXZ1_ReachSphere"
-    reachSphere.Shape = Enum.PartType.Ball
-    reachSphere.Size = Vector3.new(CONFIG.reach * 2, CONFIG.reach * 2, CONFIG.reach * 2)
-    reachSphere.Anchored = true
-    reachSphere.CanCollide = false
-    reachSphere.Transparency = 0.9
-    reachSphere.Material = Enum.Material.ForceField
-    reachSphere.Color = CONFIG.customColors.primary
-    reachSphere.Parent = Workspace
-    
-    task.spawn(function()
-        while reachSphere and reachSphere.Parent do
-            pcall(function()
-                if HRP and HRP.Parent then
-                    reachSphere.Position = HRP.Position
-                end
-            end)
-            task.wait(0.05)
-        end
-    end)
-end
-
-local function createArthurSphere()
-    if arthurSphere then
-        pcall(function() arthurSphere:Destroy() end)
-    end
-    
-    arthurSphere = Instance.new("Part")
-    arthurSphere.Name = "CAFUXZ1_ArthurSphere"
-    arthurSphere.Shape = Enum.PartType.Ball
-    arthurSphere.Size = Vector3.new(CONFIG.arthurSphere.reach * 2, CONFIG.arthurSphere.reach * 2, CONFIG.arthurSphere.reach * 2)
-    arthurSphere.Anchored = true
-    arthurSphere.CanCollide = false
-    arthurSphere.Transparency = CONFIG.arthurSphere.transparency
-    arthurSphere.Material = CONFIG.arthurSphere.material
-    arthurSphere.Color = CONFIG.arthurSphere.color
-    arthurSphere.Parent = Workspace
-    
-    task.spawn(function()
-        local baseSize = CONFIG.arthurSphere.reach * 2
-        while arthurSphere and arthurSphere.Parent do
-            local pulse = math.sin(tick() * CONFIG.arthurSphere.pulseSpeed) * 0.5 + 0.5
-            pcall(function()
-                arthurSphere.Size = Vector3.new(baseSize + pulse * 2, baseSize + pulse * 2, baseSize + pulse * 2)
-                if HRP and HRP.Parent then
-                    arthurSphere.Position = HRP.Position
-                end
-            end)
-            task.wait(0.05)
-        end
-    end)
-end
-
 -- ============================================
--- AUTO TOUCH SIMPLIFICADO
+-- SISTEMA DE TOUCH/REACH
 -- ============================================
-local function autoTouch()
-    if not CONFIG.autoTouch then return end
+local function autoTouchBall(ball)
+    if not ball or not ball.Parent then return end
+    if not HRP or not HRP.Parent then return end
     
     local now = tick()
-    if now - lastTouch < CONFIG.scanCooldown then return end
+    local debounceKey = ball:GetFullName()
     
-    local hrpPos = HRP and HRP.Position
-    if not hrpPos then return end
-    
-    local parts = {}
-    for _, part in ipairs(Character:GetChildren()) do
-        if part:IsA("BasePart") then
-            table.insert(parts, part)
-        end
+    if touchDebounce[debounceKey] and (now - touchDebounce[debounceKey]) < CONFIG.scanCooldown then
+        return
     end
     
-    local touched = 0
+    local ballPos = ball.Position
+    local hrpPos = HRP.Position
+    local dist = (ballPos - hrpPos).Magnitude
     
-    for _, ball in ipairs(balls) do
-        if ball and ball.Parent and ball.Position then
-            local dist = (ball.Position - hrpPos).Magnitude
-            
-            if dist <= CONFIG.reach then
-                local debounceKey = ball:GetFullName()
-                
-                if not touchDebounce[debounceKey] or (now - touchDebounce[debounceKey]) > 0.5 then
-                    touchDebounce[debounceKey] = now
-                    
-                    for _, part in ipairs(parts) do
-                        firetouchinterest(ball, part, 0)
-                    end
-                    
-                    task.wait(0.03)
-                    
-                    for _, part in ipairs(parts) do
-                        firetouchinterest(ball, part, 1)
-                    end
-                    
-                    touched = touched + 1
-                    STATS.totalTouches = STATS.totalTouches + 1
-                    
-                    if CONFIG.fullBodyTouch then
-                        task.wait(0.02)
-                        for _, part in ipairs(parts) do
-                            firetouchinterest(ball, part, 0)
-                            task.wait(0.01)
-                            firetouchinterest(ball, part, 1)
-                        end
-                    end
+    local effectiveReach = PingSystem:GetEffectiveRange(CONFIG.reach)
+    
+    if dist <= effectiveReach then
+        touchDebounce[debounceKey] = now
+        
+        local parts = {}
+        if CONFIG.fullBodyTouch then
+            for _, part in ipairs(Character:GetChildren()) do
+                if part:IsA("BasePart") then
+                    table.insert(parts, part)
                 end
             end
-        end
-    end
-    
-    if touched > 0 then
-        lastTouch = now
-        STATS.ballsTouched = STATS.ballsTouched + touched
-    end
-end
-
--- ============================================
--- GUI SYSTEM (WINDUI STYLE)
--- ============================================
--- Helper functions para criar elementos da UI
-function createToggle(parent, text, default, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 40)
-    frame.BackgroundTransparency = 1
-    frame.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.7, 0, 1, 0)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = CONFIG.customColors.textPrimary
-    label.TextSize = 14
-    label.Font = Enum.Font.Gotham
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
-    
-    local toggleBtn = Instance.new("TextButton")
-    toggleBtn.Size = UDim2.new(0, 50, 0, 26)
-    toggleBtn.Position = UDim2.new(1, -55, 0.5, -13)
-    toggleBtn.BackgroundColor3 = default and CONFIG.customColors.success or CONFIG.customColors.danger
-    toggleBtn.Text = default and "ON" or "OFF"
-    toggleBtn.TextColor3 = Color3.new(1, 1, 1)
-    toggleBtn.TextSize = 12
-    toggleBtn.Font = Enum.Font.GothamBold
-    toggleBtn.Parent = frame
-    
-    local toggleCorner = Instance.new("UICorner")
-    toggleCorner.CornerRadius = UDim.new(0, 13)
-    toggleCorner.Parent = toggleBtn
-    
-    local enabled = default
-    
-    toggleBtn.MouseButton1Click:Connect(function()
-        enabled = not enabled
-        toggleBtn.BackgroundColor3 = enabled and CONFIG.customColors.success or CONFIG.customColors.danger
-        toggleBtn.Text = enabled and "ON" or "OFF"
-        callback(enabled)
-    end)
-    
-    return frame
-end
-
-function createSlider(parent, text, min, max, default, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 60)
-    frame.BackgroundTransparency = 1
-    frame.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(0.6, 0, 0, 20)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = CONFIG.customColors.textPrimary
-    label.TextSize = 14
-    label.Font = Enum.Font.Gotham
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
-    
-    local valueLabel = Instance.new("TextLabel")
-    valueLabel.Size = UDim2.new(0.4, 0, 0, 20)
-    valueLabel.Position = UDim2.new(0.6, 0, 0, 0)
-    valueLabel.BackgroundTransparency = 1
-    valueLabel.Text = tostring(default)
-    valueLabel.TextColor3 = CONFIG.customColors.primary
-    valueLabel.TextSize = 14
-    valueLabel.Font = Enum.Font.GothamBold
-    valueLabel.TextXAlignment = Enum.TextXAlignment.Right
-    valueLabel.Parent = frame
-    
-    local track = Instance.new("Frame")
-    track.Size = UDim2.new(1, 0, 0, 6)
-    track.Position = UDim2.new(0, 0, 0, 35)
-    track.BackgroundColor3 = CONFIG.customColors.bgElevated
-    track.BorderSizePixel = 0
-    track.Parent = frame
-    
-    local trackCorner = Instance.new("UICorner")
-    trackCorner.CornerRadius = UDim.new(0, 3)
-    trackCorner.Parent = track
-    
-    local fill = Instance.new("Frame")
-    fill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
-    fill.BackgroundColor3 = CONFIG.customColors.primary
-    fill.BorderSizePixel = 0
-    fill.Parent = track
-    
-    local fillCorner = Instance.new("UICorner")
-    fillCorner.CornerRadius = UDim.new(0, 3)
-    fillCorner.Parent = fill
-    
-    local knob = Instance.new("Frame")
-    knob.Size = UDim2.new(0, 16, 0, 16)
-    knob.Position = UDim2.new((default - min) / (max - min), -8, 0.5, -8)
-    knob.BackgroundColor3 = CONFIG.customColors.textPrimary
-    knob.BorderSizePixel = 0
-    knob.Parent = track
-    
-    local knobCorner = Instance.new("UICorner")
-    knobCorner.CornerRadius = UDim.new(1, 0)
-    knobCorner.Parent = knob
-    
-    local dragging = false
-    
-    local function update(input)
-        local pos = math.clamp((input.Position.X - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-        local value = min + (max - min) * pos
-        
-        fill.Size = UDim2.new(pos, 0, 1, 0)
-        knob.Position = UDim2.new(pos, -8, 0.5, -8)
-        valueLabel.Text = string.format("%.2f", value)
-        
-        callback(value)
-    end
-    
-    knob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-        end
-    end)
-    
-    track.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = true
-            update(input)
-        end
-    end)
-    
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-            update(input)
-        end
-    end)
-    
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 then
-            dragging = false
-        end
-    end)
-    
-    return frame
-end
-
-function createDropdown(parent, text, options, default, callback)
-    local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(1, 0, 0, 70)
-    frame.BackgroundTransparency = 1
-    frame.Parent = parent
-    
-    local label = Instance.new("TextLabel")
-    label.Size = UDim2.new(1, 0, 0, 20)
-    label.BackgroundTransparency = 1
-    label.Text = text
-    label.TextColor3 = CONFIG.customColors.textPrimary
-    label.TextSize = 14
-    label.Font = Enum.Font.Gotham
-    label.TextXAlignment = Enum.TextXAlignment.Left
-    label.Parent = frame
-    
-    local dropdownBtn = Instance.new("TextButton")
-    dropdownBtn.Size = UDim2.new(1, 0, 0, 35)
-    dropdownBtn.Position = UDim2.new(0, 0, 0, 25)
-    dropdownBtn.BackgroundColor3 = CONFIG.customColors.bgElevated
-    dropdownBtn.Text = default
-    dropdownBtn.TextColor3 = CONFIG.customColors.textPrimary
-    dropdownBtn.TextSize = 14
-    dropdownBtn.Font = Enum.Font.Gotham
-    dropdownBtn.Parent = frame
-    
-    local dropdownCorner = Instance.new("UICorner")
-    dropdownCorner.CornerRadius = UDim.new(0, 8)
-    dropdownCorner.Parent = dropdownBtn
-    
-    local arrow = Instance.new("TextLabel")
-    arrow.Size = UDim2.new(0, 30, 1, 0)
-    arrow.Position = UDim2.new(1, -35, 0, 0)
-    arrow.BackgroundTransparency = 1
-    arrow.Text = "▼"
-    arrow.TextColor3 = CONFIG.customColors.textMuted
-    arrow.TextSize = 12
-    arrow.Font = Enum.Font.GothamBold
-    arrow.Parent = dropdownBtn
-    
-    local expanded = false
-    local optionsFrame = nil
-    
-    dropdownBtn.MouseButton1Click:Connect(function()
-        expanded = not expanded
-        arrow.Text = expanded and "▲" or "▼"
-        
-        if expanded then
-            optionsFrame = Instance.new("Frame")
-            optionsFrame.Size = UDim2.new(1, 0, 0, #options * 30)
-            optionsFrame.Position = UDim2.new(0, 0, 1, 5)
-            optionsFrame.BackgroundColor3 = CONFIG.customColors.bgElevated
-            optionsFrame.BorderSizePixel = 0
-            optionsFrame.ZIndex = 10
-            optionsFrame.Parent = dropdownBtn
-            
-            local optionsCorner = Instance.new("UICorner")
-            optionsCorner.CornerRadius = UDim.new(0, 8)
-            optionsCorner.Parent = optionsFrame
-            
-            for i, option in ipairs(options) do
-                local optionBtn = Instance.new("TextButton")
-                optionBtn.Size = UDim2.new(1, 0, 0, 30)
-                optionBtn.Position = UDim2.new(0, 0, 0, (i-1) * 30)
-                optionBtn.BackgroundTransparency = 1
-                optionBtn.Text = option
-                optionBtn.TextColor3 = CONFIG.customColors.textSecondary
-                optionBtn.TextSize = 13
-                optionBtn.Font = Enum.Font.Gotham
-                optionBtn.ZIndex = 11
-                optionBtn.Parent = optionsFrame
-                
-                optionBtn.MouseButton1Click:Connect(function()
-                    dropdownBtn.Text = option
-                    callback(option)
-                    expanded = false
-                    arrow.Text = "▼"
-                    if optionsFrame then
-                        optionsFrame:Destroy()
-                        optionsFrame = nil
-                    end
-                end)
-                
-                optionBtn.MouseEnter:Connect(function()
-                    optionBtn.BackgroundColor3 = CONFIG.customColors.bgGlass
-                    optionBtn.BackgroundTransparency = 0.5
-                end)
-                
-                optionBtn.MouseLeave:Connect(function()
-                    optionBtn.BackgroundTransparency = 1
-                end)
-            end
         else
-            if optionsFrame then
-                optionsFrame:Destroy()
-                optionsFrame = nil
+            table.insert(parts, HRP)
+        end
+        
+        for _, part in ipairs(parts) do
+            pcall(function()
+                firetouchinterest(ball, part, 0)
+                task.wait(0.01)
+                firetouchinterest(ball, part, 1)
+            end)
+        end
+        
+        STATS.totalTouches = STATS.totalTouches + 1
+        STATS.ballsTouched = STATS.ballsTouched + 1
+    end
+end
+
+-- ============================================
+-- ESPHERA DE ALCANCE (VISUAL)
+-- ============================================
+local function updateReachSphere()
+    if not CONFIG.showReachSphere then
+        if reachSphere then
+            reachSphere:Destroy()
+            reachSphere = nil
+        end
+        return
+    end
+    
+    if not HRP or not HRP.Parent then return end
+    
+    if not reachSphere then
+        reachSphere = Instance.new("Part")
+        reachSphere.Name = "CAFUXZ1_ReachSphere"
+        reachSphere.Shape = Enum.PartType.Ball
+        reachSphere.Anchored = true
+        reachSphere.CanCollide = false
+        reachSphere.Material = Enum.Material.ForceField
+        reachSphere.Color = CONFIG.customColors.primary
+        reachSphere.Transparency = 0.9
+        reachSphere.Parent = Workspace
+    end
+    
+    local effectiveReach = PingSystem:GetEffectiveRange(CONFIG.reach)
+    reachSphere.Size = Vector3.new(effectiveReach * 2, effectiveReach * 2, effectiveReach * 2)
+    reachSphere.Position = HRP.Position
+end
+
+-- ============================================
+-- LOOP PRINCIPAL
+-- ============================================
+local function mainLoop()
+    if loopRunning then return end
+    loopRunning = true
+    
+    heartbeatConnection = RunService.Heartbeat:Connect(function()
+        if isClosed then return end
+        
+        PingSystem:Update()
+        updateBalls()
+        updateReachSphere()
+        
+        if CONFIG.autoTouch then
+            for _, ball in ipairs(balls) do
+                autoTouchBall(ball)
             end
         end
+        
+        ReachBypass:Process()
+        BallColorSystem:Update()
+        
+        -- Atualiza estatísticas
+        local now = tick()
+        if now - lastStatsUpdate >= statsUpdateInterval then
+            lastStatsUpdate = now
+        end
     end)
-    
-    return frame
 end
 
-function createColorButton(parent, text, color, y, callback)
-    local btn = Instance.new("TextButton")
-    btn.Size = UDim2.new(1, 0, 0, 35)
-    btn.Position = UDim2.new(0, 0, 0, y)
-    btn.BackgroundColor3 = color
-    btn.Text = text
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.TextSize = 14
-    btn.Font = Enum.Font.GothamBold
-    btn.Parent = parent
-    
-    local btnCorner = Instance.new("UICorner")
-    btnCorner.CornerRadius = UDim.new(0, 8)
-    btnCorner.Parent = btn
-    
-    btn.MouseButton1Click:Connect(function()
-        callback(color)
-    end)
-    
-    return btn
-end
-
+-- ============================================
+-- CRIAÇÃO DA INTERFACE GUI (WINDUI STYLE)
+-- ============================================
 local function createMainGUI()
+    if mainGui then
+        pcall(function() mainGui:Destroy() end)
+    end
+    
     mainGui = Instance.new("ScreenGui")
     mainGui.Name = "CAFUXZ1_Hub_v16"
     mainGui.ResetOnSpawn = false
     mainGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
     mainGui.Parent = CoreGui
     
+    -- Frame Principal
     mainFrame = Instance.new("Frame")
     mainFrame.Name = "MainFrame"
     mainFrame.Size = UDim2.new(0, CONFIG.width, 0, CONFIG.height)
@@ -2343,7 +2065,6 @@ local function createMainGUI()
     mainFrame.BackgroundColor3 = CONFIG.customColors.bgDark
     mainFrame.BackgroundTransparency = 0.1
     mainFrame.BorderSizePixel = 0
-    mainFrame.ClipsDescendants = true
     mainFrame.Parent = mainGui
     
     local mainCorner = Instance.new("UICorner")
@@ -2353,14 +2074,15 @@ local function createMainGUI()
     local mainStroke = Instance.new("UIStroke")
     mainStroke.Color = CONFIG.customColors.primary
     mainStroke.Thickness = 2
-    mainStroke.Transparency = 0.6
+    mainStroke.Transparency = 0.5
     mainStroke.Parent = mainFrame
     
+    -- Header/Title Bar
     local header = Instance.new("Frame")
     header.Name = "Header"
-    header.Size = UDim2.new(1, 0, 0, 60)
+    header.Size = UDim2.new(1, 0, 0, 50)
     header.BackgroundColor3 = CONFIG.customColors.bgCard
-    header.BackgroundTransparency = 0.5
+    header.BackgroundTransparency = 0.3
     header.BorderSizePixel = 0
     header.Parent = mainFrame
     
@@ -2369,67 +2091,94 @@ local function createMainGUI()
     headerCorner.Parent = header
     
     local titleLabel = Instance.new("TextLabel")
-    titleLabel.Size = UDim2.new(0, 200, 0, 30)
-    titleLabel.Position = UDim2.new(0, 20, 0, 15)
+    titleLabel.Size = UDim2.new(1, -120, 1, 0)
+    titleLabel.Position = UDim2.new(0, 20, 0, 0)
     titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = "CAFUXZ1 Hub"
+    titleLabel.Text = "⚡ CAFUXZ1 Hub"
     titleLabel.TextColor3 = CONFIG.customColors.textPrimary
-    titleLabel.TextSize = 24
+    titleLabel.TextSize = 22
     titleLabel.Font = Enum.Font.GothamBold
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
     titleLabel.Parent = header
     
     local versionLabel = Instance.new("TextLabel")
-    versionLabel.Size = UDim2.new(0, 200, 0, 20)
-    versionLabel.Position = UDim2.new(0, 20, 0, 38)
+    versionLabel.Size = UDim2.new(0, 100, 0, 20)
+    versionLabel.Position = UDim2.new(0, 20, 0.6, 0)
     versionLabel.BackgroundTransparency = 1
-    versionLabel.Text = "v16.4 + @TCS NOVIDADES"
-    versionLabel.TextColor3 = CONFIG.customColors.bypass
+    versionLabel.Text = "v16.4"
+    versionLabel.TextColor3 = CONFIG.customColors.textMuted
     versionLabel.TextSize = 12
     versionLabel.Font = Enum.Font.Gotham
     versionLabel.TextXAlignment = Enum.TextXAlignment.Left
     versionLabel.Parent = header
     
-    local controlsFrame = Instance.new("Frame")
-    controlsFrame.Size = UDim2.new(0, 80, 0, 30)
-    controlsFrame.Position = UDim2.new(1, -90, 0, 15)
-    controlsFrame.BackgroundTransparency = 1
-    controlsFrame.Parent = header
-    
-    local minimizeBtn = Instance.new("TextButton")
-    minimizeBtn.Size = UDim2.new(0, 35, 0, 30)
-    minimizeBtn.Position = UDim2.new(0, 0, 0, 0)
-    minimizeBtn.BackgroundColor3 = CONFIG.customColors.warning
-    minimizeBtn.Text = "−"
-    minimizeBtn.TextColor3 = Color3.new(1, 1, 1)
-    minimizeBtn.TextSize = 20
-    minimizeBtn.Font = Enum.Font.GothamBold
-    minimizeBtn.Parent = controlsFrame
-    
-    local minCorner = Instance.new("UICorner")
-    minCorner.CornerRadius = UDim.new(0, 8)
-    minCorner.Parent = minimizeBtn
-    
+    -- Botão Fechar (X)
     local closeBtn = Instance.new("TextButton")
-    closeBtn.Size = UDim2.new(0, 35, 0, 30)
-    closeBtn.Position = UDim2.new(0, 45, 0, 0)
+    closeBtn.Name = "CloseBtn"
+    closeBtn.Size = UDim2.new(0, 35, 0, 35)
+    closeBtn.Position = UDim2.new(1, -45, 0.5, -17.5)
     closeBtn.BackgroundColor3 = CONFIG.customColors.danger
-    closeBtn.Text = "×"
+    closeBtn.Text = "✕"
     closeBtn.TextColor3 = Color3.new(1, 1, 1)
-    closeBtn.TextSize = 20
+    closeBtn.TextSize = 18
     closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.Parent = controlsFrame
+    closeBtn.Parent = header
     
     local closeCorner = Instance.new("UICorner")
     closeCorner.CornerRadius = UDim.new(0, 8)
     closeCorner.Parent = closeBtn
     
-    local sidebar = Instance.new("Frame")
+    closeBtn.MouseButton1Click:Connect(function()
+        isClosed = true
+        pcall(function() mainGui:Destroy() end)
+        mainGui = nil
+        createFloatingIcon()
+    end)
+    
+    -- Botão Minimizar (−) com SISTEMA DE DUPLO CLIQUE
+    local minimizeBtn = Instance.new("TextButton")
+    minimizeBtn.Name = "MinimizeBtn"
+    minimizeBtn.Size = UDim2.new(0, 35, 0, 35)
+    minimizeBtn.Position = UDim2.new(1, -85, 0.5, -17.5)
+    minimizeBtn.BackgroundColor3 = CONFIG.customColors.warning
+    minimizeBtn.Text = "−"
+    minimizeBtn.TextColor3 = Color3.new(1, 1, 1)
+    minimizeBtn.TextSize = 22
+    minimizeBtn.Font = Enum.Font.GothamBold
+    minimizeBtn.Parent = header
+    
+    local minimizeCorner = Instance.new("UICorner")
+    minimizeCorner.CornerRadius = UDim.new(0, 8)
+    minimizeCorner.Parent = minimizeBtn
+    
+    -- SISTEMA DE DUPLO CLIQUE NO MINIMIZAR
+    local lastClickTime = 0
+    minimizeBtn.MouseButton1Click:Connect(function()
+        local currentTime = tick()
+        if currentTime - lastClickTime < 0.3 then -- Duplo clique (menos de 0.3s)
+            isMinimized = not isMinimized
+            if isMinimized then
+                tween(mainFrame, {Size = UDim2.new(0, CONFIG.width, 0, 50)}, 0.3)
+                contentFrame.Visible = false
+                sidebar.Visible = false
+                minimizeBtn.Text = "+"
+            else
+                tween(mainFrame, {Size = UDim2.new(0, CONFIG.width, 0, CONFIG.height)}, 0.3)
+                contentFrame.Visible = true
+                sidebar.Visible = true
+                minimizeBtn.Text = "−"
+            end
+        end
+        lastClickTime = currentTime
+    end)
+    
+    -- Sidebar (Menu Lateral)
+    sidebar = Instance.new("Frame")
     sidebar.Name = "Sidebar"
-    sidebar.Size = UDim2.new(0, CONFIG.sidebarWidth, 1, -60)
-    sidebar.Position = UDim2.new(0, 0, 0, 60)
+    sidebar.Size = UDim2.new(0, CONFIG.sidebarWidth, 1, -50)
+    sidebar.Position = UDim2.new(0, 0, 0, 50)
     sidebar.BackgroundColor3 = CONFIG.customColors.bgCard
-    sidebar.BackgroundTransparency = 0.3
+    sidebar.BackgroundTransparency = 0.5
     sidebar.BorderSizePixel = 0
     sidebar.Parent = mainFrame
     
@@ -2437,43 +2186,37 @@ local function createMainGUI()
     sidebarCorner.CornerRadius = UDim.new(0, 0)
     sidebarCorner.Parent = sidebar
     
-    local contentFrame = Instance.new("Frame")
+    -- Content Frame
+    contentFrame = Instance.new("Frame")
     contentFrame.Name = "Content"
-    contentFrame.Size = UDim2.new(1, -CONFIG.sidebarWidth - 20, 1, -80)
-    contentFrame.Position = UDim2.new(0, CONFIG.sidebarWidth + 10, 0, 70)
-    contentFrame.BackgroundColor3 = CONFIG.customColors.bgGlass
-    contentFrame.BackgroundTransparency = 0.5
-    contentFrame.BorderSizePixel = 0
-    contentFrame.ClipsDescendants = true
+    contentFrame.Size = UDim2.new(1, -CONFIG.sidebarWidth, 1, -50)
+    contentFrame.Position = UDim2.new(0, CONFIG.sidebarWidth, 0, 50)
+    contentFrame.BackgroundTransparency = 1
     contentFrame.Parent = mainFrame
     
-    local contentCorner = Instance.new("UICorner")
-    contentCorner.CornerRadius = UDim.new(0, 12)
-    contentCorner.Parent = contentFrame
-    
+    -- Criar botões do menu lateral
     local tabs = {
-        { name = "reach", icon = "⚡", label = "Reach" },
-        { name = "tote", icon = "🎯", label = "Tote" },
-        { name = "ball", icon = "⚽", label = "Bola" },
-        { name = "visual", icon = "👁️", label = "Visual" },
-        { name = "morph", icon = "✨", label = "Morph" },
-        { name = "sky", icon = "☁️", label = "Skybox" },
-        { name = "stats", icon = "📊", label = "Stats" },
-        { name = "logs", icon = "📜", label = "Logs" }
+        {name = "reach", icon = "🎯", label = "Reach"},
+        {name = "tote", icon = "⚽", label = "Tote"},
+        {name = "antilag", icon = "🚀", label = "Anti-Lag"},
+        {name = "ball", icon = "🔴", label = "Ball Color"},
+        {name = "morph", icon = "👤", label = "Morph"},
+        {name = "sky", icon = "☁️", label = "Skybox"},
+        {name = "stats", icon = "📊", label = "Stats"},
+        {name = "logs", icon = "📝", label = "Logs"}
     }
     
     local tabButtons = {}
-    local tabContents = {}
     
     for i, tab in ipairs(tabs) do
         local btn = Instance.new("TextButton")
         btn.Name = tab.name .. "Btn"
-        btn.Size = UDim2.new(0.9, 0, 0, 45)
-        btn.Position = UDim2.new(0.05, 0, 0, 10 + (i-1) * 55)
-        btn.BackgroundColor3 = (i == 1) and CONFIG.customColors.primary or CONFIG.customColors.bgElevated
+        btn.Size = UDim2.new(1, -10, 0, 45)
+        btn.Position = UDim2.new(0, 5, 0, 10 + (i-1) * 55)
+        btn.BackgroundColor3 = currentTab == tab.name and CONFIG.customColors.primary or CONFIG.customColors.bgElevated
         btn.Text = tab.icon .. " " .. tab.label
-        btn.TextColor3 = CONFIG.customColors.textPrimary
-        btn.TextSize = 14
+        btn.TextColor3 = currentTab == tab.name and Color3.new(1,1,1) or CONFIG.customColors.textSecondary
+        btn.TextSize = 12
         btn.Font = Enum.Font.GothamBold
         btn.Parent = sidebar
         
@@ -2481,674 +2224,752 @@ local function createMainGUI()
         btnCorner.CornerRadius = UDim.new(0, 10)
         btnCorner.Parent = btn
         
-        tabButtons[tab.name] = btn
-        
-        local tabContent = Instance.new("ScrollingFrame")
-        tabContent.Name = tab.name .. "Content"
-        tabContent.Size = UDim2.new(1, -20, 1, -20)
-        tabContent.Position = UDim2.new(0, 10, 0, 10)
-        tabContent.BackgroundTransparency = 1
-        tabContent.BorderSizePixel = 0
-        tabContent.ScrollBarThickness = 4
-        tabContent.ScrollBarImageColor3 = CONFIG.customColors.primary
-        tabContent.Visible = (i == 1)
-        tabContent.AutomaticCanvasSize = Enum.AutomaticSize.Y
-        tabContent.Parent = contentFrame
-        
-        local listLayout = Instance.new("UIListLayout")
-        listLayout.Padding = UDim.new(0, 10)
-        listLayout.Parent = tabContent
-        
-        tabContents[tab.name] = tabContent
-        
         btn.MouseButton1Click:Connect(function()
             currentTab = tab.name
-            
-            for name, button in pairs(tabButtons) do
-                button.BackgroundColor3 = (name == tab.name) and CONFIG.customColors.primary or CONFIG.customColors.bgElevated
+            for _, b in ipairs(tabButtons) do
+                b.BackgroundColor3 = CONFIG.customColors.bgElevated
+                b.TextColor3 = CONFIG.customColors.textSecondary
             end
-            
-            for name, content in pairs(tabContents) do
-                content.Visible = (name == tab.name)
+            btn.BackgroundColor3 = CONFIG.customColors.primary
+            btn.TextColor3 = Color3.new(1,1,1)
+            updateContent()
+        end)
+        
+        table.insert(tabButtons, btn)
+    end
+    
+    -- Função para atualizar conteúdo baseado na aba
+    function updateContent()
+        for _, child in ipairs(contentFrame:GetChildren()) do
+            child:Destroy()
+        end
+        
+        if currentTab == "reach" then
+            createReachTab()
+        elseif currentTab == "tote" then
+            createToteTab()
+        elseif currentTab == "antilag" then
+            createAntiLagTab()
+        elseif currentTab == "ball" then
+            createBallColorTab()
+        elseif currentTab == "morph" then
+            createMorphTab()
+        elseif currentTab == "sky" then
+            createSkyboxTab()
+        elseif currentTab == "stats" then
+            createStatsTab()
+        elseif currentTab == "logs" then
+            createLogsTab()
+        end
+    end
+    
+    -- Criar abas (funções serão definidas abaixo)
+    function createReachTab()
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -20, 1, -20)
+        scroll.Position = UDim2.new(0, 10, 0, 10)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 6
+        scroll.Parent = contentFrame
+        
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 15)
+        layout.Parent = scroll
+        
+        -- Reach Distance Slider
+        createSlider(scroll, "Reach Distance", 5, 50, CONFIG.reach, function(val)
+            CONFIG.reach = val
+        end)
+        
+        -- Show Sphere Toggle
+        createToggle(scroll, "Mostrar Esfera", CONFIG.showReachSphere, function(val)
+            CONFIG.showReachSphere = val
+        end)
+        
+        -- Auto Touch Toggle
+        createToggle(scroll, "Auto Touch", CONFIG.autoTouch, function(val)
+            CONFIG.autoTouch = val
+        end)
+        
+        -- Full Body Touch Toggle
+        createToggle(scroll, "Full Body Touch", CONFIG.fullBodyTouch, function(val)
+            CONFIG.fullBodyTouch = val
+        end)
+        
+        -- Reach Bypass Toggle
+        createToggle(scroll, "Reach Bypass (Double Touch)", CONFIG.reachBypass.enabled, function(val)
+            CONFIG.reachBypass.enabled = val
+            if val then
+                notifyBypass("Reach Bypass", "Sistema ativado!", 2)
+            else
+                notifyWarning("Reach Bypass", "Desativado", 2)
             end
+        end)
+        
+        -- Ping Optimization Toggle
+        createToggle(scroll, "Otimização de Ping", CONFIG.pingOptimization.enabled, function(val)
+            CONFIG.pingOptimization.enabled = val
         end)
     end
     
-    -- ============================================
-    -- TAB: REACH
-    -- ============================================
-    local reachContent = tabContents.reach
+    function createToteTab()
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -20, 1, -20)
+        scroll.Position = UDim2.new(0, 10, 0, 10)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 6
+        scroll.Parent = contentFrame
+        
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 15)
+        layout.Parent = scroll
+        
+        -- Enable Toggle
+        createToggle(scroll, "Ativar Tote System", CONFIG.tote.enabled, function(val)
+            ToteSystem:Toggle()
+        end)
+        
+        -- Power Slider
+        createSlider(scroll, "Power", 10, 100, CONFIG.tote.power, function(val)
+            CONFIG.tote.power = val
+        end)
+        
+        -- Curve Amount Slider
+        createSlider(scroll, "Curve Amount", 0, 100, CONFIG.tote.curveAmount, function(val)
+            CONFIG.tote.curveAmount = val
+        end)
+        
+        -- Height Slider
+        createSlider(scroll, "Height", 5, 50, CONFIG.tote.height, function(val)
+            CONFIG.tote.height = val
+        end)
+        
+        -- Visualizer Toggle
+        createToggle(scroll, "Visualizador de Trajetória", CONFIG.tote.visualizer, function(val)
+            CONFIG.tote.visualizer = val
+        end)
+        
+        -- Auto Aim Toggle
+        createToggle(scroll, "Auto Aim", CONFIG.tote.autoAim, function(val)
+            CONFIG.tote.autoAim = val
+        end)
+        
+        -- Keybind Info
+        local info = Instance.new("TextLabel")
+        info.Size = UDim2.new(1, 0, 0, 30)
+        info.BackgroundTransparency = 1
+        info.Text = "Tecla: [T] para chutar"
+        info.TextColor3 = CONFIG.customColors.tote
+        info.TextSize = 14
+        info.Font = Enum.Font.GothamBold
+        info.Parent = scroll
+    end
     
-    local reachTitle = Instance.new("TextLabel")
-    reachTitle.Size = UDim2.new(1, 0, 0, 30)
-    reachTitle.BackgroundTransparency = 1
-    reachTitle.Text = "⚡ REACH SYSTEM"
-    reachTitle.TextColor3 = CONFIG.customColors.primary
-    reachTitle.TextSize = 18
-    reachTitle.Font = Enum.Font.GothamBold
-    reachTitle.TextXAlignment = Enum.TextXAlignment.Left
-    reachTitle.Parent = reachContent
+    function createAntiLagTab()
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -20, 1, -20)
+        scroll.Position = UDim2.new(0, 10, 0, 10)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 6
+        scroll.Parent = contentFrame
+        
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 15)
+        layout.Parent = scroll
+        
+        -- Textures Toggle
+        createToggle(scroll, "Remover Texturas", AntiLagSystem.TexturesActive, function(val)
+            AntiLagSystem:ToggleTextures()
+        end)
+        
+        -- Resolution Toggle
+        createToggle(scroll, "Tela Esticada", AntiLagSystem.ResolutionActive, function(val)
+            AntiLagSystem:ToggleResolution()
+        end)
+        
+        -- Resolution Scale Slider
+        createSlider(scroll, "Escala de Resolução", 30, 100, CONFIG.antiLag.resolutionScale * 100, function(val)
+            AntiLagSystem:SetResolution(val / 100)
+        end)
+    end
     
-    createToggle(reachContent, "Reach Bypass", CONFIG.reachBypass.enabled, function(val)
-        CONFIG.reachBypass.enabled = val
-        if val then
-            notifyBypass("Reach Bypass", "Ativado! Double Touch.", 2)
-        else
-            notifyWarning("Reach Bypass", "Desativado!", 2)
-        end
-    end)
-    
-    createToggle(reachContent, "Auto Touch", CONFIG.autoTouch, function(val)
-        CONFIG.autoTouch = val
-    end)
-    
-    createToggle(reachContent, "Mostrar Esfera", CONFIG.showReachSphere, function(val)
-        CONFIG.showReachSphere = val
-        if val then
-            createReachSphere()
-        elseif reachSphere then
-            reachSphere:Destroy()
-            reachSphere = nil
-        end
-    end)
-    
-    createSlider(reachContent, "Alcance", 5, 50, CONFIG.reach, function(val)
-        CONFIG.reach = val
-        if reachSphere then
-            reachSphere.Size = Vector3.new(val * 2, val * 2, val * 2)
-        end
-    end)
-    
-    createSlider(reachContent, "Delay Double Touch", 0.01, 0.1, CONFIG.reachBypass.doubleTouchDelay, function(val)
-        CONFIG.reachBypass.doubleTouchDelay = val
-    end)
-    
-    local bypassInfo = Instance.new("TextLabel")
-    bypassInfo.Size = UDim2.new(1, 0, 0, 60)
-    bypassInfo.BackgroundTransparency = 1
-    bypassInfo.Text = "SISTEMA ATUAL:\n• Sem Magnet (nao puxa bola)\n• Double Touch puro\n• Multi-Touch Chain"
-    bypassInfo.TextColor3 = CONFIG.customColors.textSecondary
-    bypassInfo.TextSize = 12
-    bypassInfo.Font = Enum.Font.Gotham
-    bypassInfo.TextWrapped = true
-    bypassInfo.TextXAlignment = Enum.TextXAlignment.Left
-    bypassInfo.Parent = reachContent
-    
-    -- ============================================
-    -- TAB: TOTE
-    -- ============================================
-    local toteContent = tabContents.tote
-    
-    local toteTitle = Instance.new("TextLabel")
-    toteTitle.Size = UDim2.new(1, 0, 0, 30)
-    toteTitle.BackgroundTransparency = 1
-    toteTitle.Text = "🎯 TOTE SYSTEM"
-    toteTitle.TextColor3 = CONFIG.customColors.tote
-    toteTitle.TextSize = 18
-    toteTitle.Font = Enum.Font.GothamBold
-    toteTitle.TextXAlignment = Enum.TextXAlignment.Left
-    toteTitle.Parent = toteContent
-    
-    createToggle(toteContent, "Ativar Tote", CONFIG.tote.enabled, function(val)
-        CONFIG.tote.enabled = val
-        ToteSystem:Toggle()
-    end)
-    
-    createSlider(toteContent, "Power", 10, 100, CONFIG.tote.power, function(val)
-        CONFIG.tote.power = val
-    end)
-    
-    createSlider(toteContent, "Curve Amount", 0, 100, CONFIG.tote.curveAmount, function(val)
-        CONFIG.tote.curveAmount = val
-    end)
-    
-    createSlider(toteContent, "Height", 0, 50, CONFIG.tote.height, function(val)
-        CONFIG.tote.height = val
-    end)
-    
-    createDropdown(toteContent, "Curve Direction", {"Auto", "Left", "Right"}, CONFIG.tote.curveDirection, function(val)
-        CONFIG.tote.curveDirection = val
-    end)
-    
-    createToggle(toteContent, "Visualizador", CONFIG.tote.visualizer, function(val)
-        CONFIG.tote.visualizer = val
-    end)
-    
-    local keybindInfo = Instance.new("TextLabel")
-    keybindInfo.Size = UDim2.new(1, 0, 0, 30)
-    keybindInfo.BackgroundTransparency = 1
-    keybindInfo.Text = "⌨️ Keybind: [T] para chutar"
-    keybindInfo.TextColor3 = CONFIG.customColors.textMuted
-    keybindInfo.TextSize = 12
-    keybindInfo.Font = Enum.Font.Gotham
-    keybindInfo.Parent = toteContent
-    
-    -- ============================================
-    -- TAB: BALL (by @TCS NOVIDADES)
-    -- ============================================
-    local ballContent = tabContents.ball
-    
-    local ballTitle = Instance.new("TextLabel")
-    ballTitle.Size = UDim2.new(1, 0, 0, 30)
-    ballTitle.BackgroundTransparency = 1
-    ballTitle.Text = "⚽ BALL COLOR by @TCS NOVIDADES"
-    ballTitle.TextColor3 = CONFIG.customColors.ball
-    ballTitle.TextSize = 18
-    ballTitle.Font = Enum.Font.GothamBold
-    ballTitle.TextXAlignment = Enum.TextXAlignment.Left
-    ballTitle.Parent = ballContent
-    
-    createToggle(ballContent, "Ativar Coloracao", CONFIG.ballColor.enabled, function(val)
-        CONFIG.ballColor.enabled = val
-        BallColorSystem:Toggle(val)
-    end)
-    
-    local colorTitle = Instance.new("TextLabel")
-    colorTitle.Size = UDim2.new(1, 0, 0, 25)
-    colorTitle.Position = UDim2.new(0, 0, 0, 50)
-    colorTitle.BackgroundTransparency = 1
-    colorTitle.Text = "Selecionar Cor:"
-    colorTitle.TextColor3 = CONFIG.customColors.textPrimary
-    colorTitle.TextSize = 14
-    colorTitle.Font = Enum.Font.GothamBold
-    colorTitle.TextXAlignment = Enum.TextXAlignment.Left
-    colorTitle.Parent = ballContent
-    
-    createColorButton(ballContent, "🔴 VERMELHO", Color3.fromRGB(255, 0, 0), 80, function(color)
-        BallColorSystem:SetColor(color)
-        notifyBall("Cor Alterada", "Vermelho selecionado", 2)
-    end)
-    
-    createColorButton(ballContent, "🔵 AZUL", Color3.fromRGB(0, 0, 255), 120, function(color)
-        BallColorSystem:SetColor(color)
-        notifyBall("Cor Alterada", "Azul selecionado", 2)
-    end)
-    
-    createColorButton(ballContent, "🟢 VERDE", Color3.fromRGB(0, 255, 0), 160, function(color)
-        BallColorSystem:SetColor(color)
-        notifyBall("Cor Alterada", "Verde selecionado", 2)
-    end)
-    
-    createColorButton(ballContent, "🟡 AMARELO", Color3.fromRGB(255, 255, 0), 200, function(color)
-        BallColorSystem:SetColor(color)
-        notifyBall("Cor Alterada", "Amarelo selecionado", 2)
-    end)
-    
-    createColorButton(ballContent, "⚪ BRANCO", Color3.fromRGB(255, 255, 255), 240, function(color)
-        BallColorSystem:SetColor(color)
-        notifyBall("Cor Alterada", "Branco selecionado", 2)
-    end)
-    
-    createColorButton(ballContent, "⚫ PRETO", Color3.fromRGB(0, 0, 0), 280, function(color)
-        BallColorSystem:SetColor(color)
-        notifyBall("Cor Alterada", "Preto selecionado", 2)
-    end)
-    
-    local snowBtn = Instance.new("TextButton")
-    snowBtn.Size = UDim2.new(1, 0, 0, 40)
-    snowBtn.Position = UDim2.new(0, 0, 0, 330)
-    snowBtn.BackgroundColor3 = Color3.fromRGB(200, 230, 255)
-    snowBtn.Text = "❄️ ATIVAR NEVE NO MAPA"
-    snowBtn.TextColor3 = Color3.fromRGB(50, 100, 150)
-    snowBtn.TextSize = 14
-    snowBtn.Font = Enum.Font.GothamBold
-    snowBtn.Parent = ballContent
-    
-    local snowCorner = Instance.new("UICorner")
-    snowCorner.CornerRadius = UDim.new(0, 8)
-    snowCorner.Parent = snowBtn
-    
-    snowBtn.MouseButton1Click:Connect(function()
-        BallColorSystem:ToggleSnow()
-    end)
-    
-    local creditLabel = Instance.new("TextLabel")
-    creditLabel.Size = UDim2.new(1, 0, 0, 30)
-    creditLabel.Position = UDim2.new(0, 0, 0, 380)
-    creditLabel.BackgroundTransparency = 1
-    creditLabel.Text = "Sistema by @TCS NOVIDADES"
-    creditLabel.TextColor3 = CONFIG.customColors.textMuted
-    creditLabel.TextSize = 12
-    creditLabel.Font = Enum.Font.Gotham
-    creditLabel.Parent = ballContent
-    
-    -- ============================================
-    -- TAB: VISUAL
-    -- ============================================
-    local visualContent = tabContents.visual
-    
-    local visualTitle = Instance.new("TextLabel")
-    visualTitle.Size = UDim2.new(1, 0, 0, 30)
-    visualTitle.BackgroundTransparency = 1
-    visualTitle.Text = "👁️ VISUAL SETTINGS"
-    visualTitle.TextColor3 = CONFIG.customColors.accent
-    visualTitle.TextSize = 18
-    visualTitle.Font = Enum.Font.GothamBold
-    visualTitle.TextXAlignment = Enum.TextXAlignment.Left
-    visualTitle.Parent = visualContent
-    
-    createToggle(visualContent, "Remover Texturas", false, function(val)
-        if val then
-            AntiLagSystem:EnableTextures()
-        else
-            AntiLagSystem:DisableTextures()
-        end
-    end)
-    
-    createToggle(visualContent, "Tela Esticada (FPS)", false, function(val)
-        if val then
-            AntiLagSystem:EnableResolution(AntiLagSystem.CurrentResolution)
-        else
-            AntiLagSystem:DisableResolution()
-        end
-    end)
-    
-    createSlider(visualContent, "Escala da Tela", 30, 100, 65, function(val)
-        local scale = val / 100
-        AntiLagSystem:SetResolution(scale)
-    end)
-    
-    local resInfo = Instance.new("TextLabel")
-    resInfo.Size = UDim2.new(1, 0, 0, 50)
-    resInfo.BackgroundTransparency = 1
-    resInfo.Text = "Tela Esticada: Reduz resolucao para ganhar FPS\nTexturas: Remove detalhes visuais do mapa\nUse separadamente ou juntos!"
-    resInfo.TextColor3 = CONFIG.customColors.textMuted
-    resInfo.TextSize = 11
-    resInfo.Font = Enum.Font.Gotham
-    resInfo.TextWrapped = true
-    resInfo.Parent = visualContent
-    
-    local allBtn = Instance.new("TextButton")
-    allBtn.Size = UDim2.new(1, 0, 0, 40)
-    allBtn.BackgroundColor3 = CONFIG.customColors.success
-    allBtn.Text = "Ativar Tudo (Max FPS)"
-    allBtn.TextColor3 = Color3.new(1, 1, 1)
-    allBtn.TextSize = 14
-    allBtn.Font = Enum.Font.GothamBold
-    allBtn.Parent = visualContent
-    
-    local allCorner = Instance.new("UICorner")
-    allCorner.CornerRadius = UDim.new(0, 8)
-    allCorner.Parent = allBtn
-    
-    allBtn.MouseButton1Click:Connect(function()
-        AntiLagSystem:EnableTextures()
-        task.wait(0.5)
-        AntiLagSystem:EnableResolution(AntiLagSystem.CurrentResolution)
-    end)
-    
-    createToggle(visualContent, "Monitor de Ping", CONFIG.pingOptimization.showPingMonitor, function(val)
-        CONFIG.pingOptimization.showPingMonitor = val
-    end)
-    
-    createToggle(visualContent, "Arthur Sphere", false, function(val)
-        if val then
-            createArthurSphere()
-        elseif arthurSphere then
-            arthurSphere:Destroy()
-            arthurSphere = nil
-        end
-    end)
-    
-    -- ============================================
-    -- TAB: MORPH
-    -- ============================================
-    local morphContent = tabContents.morph
-    
-    local morphTitle = Instance.new("TextLabel")
-    morphTitle.Size = UDim2.new(1, 0, 0, 30)
-    morphTitle.BackgroundTransparency = 1
-    morphTitle.Text = "✨ MORPH SYSTEM"
-    morphTitle.TextColor3 = CONFIG.customColors.secondary
-    morphTitle.TextSize = 18
-    morphTitle.Font = Enum.Font.GothamBold
-    morphTitle.TextXAlignment = Enum.TextXAlignment.Left
-    morphTitle.Parent = morphContent
-    
-    local morphInput = Instance.new("TextBox")
-    morphInput.Size = UDim2.new(1, 0, 0, 40)
-    morphInput.BackgroundColor3 = CONFIG.customColors.bgElevated
-    morphInput.Text = "Username..."
-    morphInput.TextColor3 = CONFIG.customColors.textSecondary
-    morphInput.TextSize = 14
-    morphInput.Font = Enum.Font.Gotham
-    morphInput.ClearTextOnFocus = true
-    morphInput.Parent = morphContent
-    
-    local inputCorner = Instance.new("UICorner")
-    inputCorner.CornerRadius = UDim.new(0, 8)
-    inputCorner.Parent = morphInput
-    
-    local morphBtn = Instance.new("TextButton")
-    morphBtn.Size = UDim2.new(1, 0, 0, 40)
-    morphBtn.Position = UDim2.new(0, 0, 0, 50)
-    morphBtn.BackgroundColor3 = CONFIG.customColors.secondary
-    morphBtn.Text = "🔄 Aplicar Morph"
-    morphBtn.TextColor3 = Color3.new(1, 1, 1)
-    morphBtn.TextSize = 14
-    morphBtn.Font = Enum.Font.GothamBold
-    morphBtn.Parent = morphContent
-    
-    local morphBtnCorner = Instance.new("UICorner")
-    morphBtnCorner.CornerRadius = UDim.new(0, 8)
-    morphBtnCorner.Parent = morphBtn
-    
-    morphBtn.MouseButton1Click:Connect(function()
-        local username = morphInput.Text
-        if username and username ~= "" and username ~= "Username..." then
-            pcall(function()
-                local userId = Players:GetUserIdFromNameAsync(username)
-                morphToUser(userId, username)
+    function createBallColorTab()
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -20, 1, -20)
+        scroll.Position = UDim2.new(0, 10, 0, 10)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 6
+        scroll.Parent = contentFrame
+        
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 15)
+        layout.Parent = scroll
+        
+        -- Enable Toggle
+        createToggle(scroll, "Ativar Coloração", BallColorSystem.Active, function(val)
+            BallColorSystem:Toggle(val)
+        end)
+        
+        -- Snow Toggle
+        createToggle(scroll, "Modo Neve (Mapa Inteiro)", BallColorSystem.SnowActive, function(val)
+            BallColorSystem:ToggleSnow()
+        end)
+        
+        -- Color Picker (simplificado - botões de cor)
+        local colorLabel = Instance.new("TextLabel")
+        colorLabel.Size = UDim2.new(1, 0, 0, 25)
+        colorLabel.BackgroundTransparency = 1
+        colorLabel.Text = "Selecionar Cor:"
+        colorLabel.TextColor3 = CONFIG.customColors.textPrimary
+        colorLabel.TextSize = 14
+        colorLabel.Font = Enum.Font.GothamBold
+        colorLabel.Parent = scroll
+        
+        local colorGrid = Instance.new("Frame")
+        colorGrid.Size = UDim2.new(1, 0, 0, 80)
+        colorGrid.BackgroundTransparency = 1
+        colorGrid.Parent = scroll
+        
+        local colors = {
+            Color3.fromRGB(255, 0, 0),    -- Vermelho
+            Color3.fromRGB(0, 255, 0),    -- Verde
+            Color3.fromRGB(0, 0, 255),    -- Azul
+            Color3.fromRGB(255, 255, 0),  -- Amarelo
+            Color3.fromRGB(255, 0, 255),  -- Magenta
+            Color3.fromRGB(0, 255, 255),  -- Ciano
+            Color3.fromRGB(255, 255, 255),-- Branco
+            Color3.fromRGB(0, 0, 0)       -- Preto
+        }
+        
+        for i, color in ipairs(colors) do
+            local colorBtn = Instance.new("TextButton")
+            colorBtn.Size = UDim2.new(0, 35, 0, 35)
+            colorBtn.Position = UDim2.new(0, ((i-1) % 4) * 45, 0, math.floor((i-1) / 4) * 45)
+            colorBtn.BackgroundColor3 = color
+            colorBtn.Text = ""
+            colorBtn.Parent = colorGrid
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 8)
+            corner.Parent = colorBtn
+            
+            colorBtn.MouseButton1Click:Connect(function()
+                BallColorSystem:SetColor(color)
+                notifyBall("Cor Alterada", "Nova cor aplicada!", 2)
             end)
         end
-    end)
-    
-    local presetsLabel = Instance.new("TextLabel")
-    presetsLabel.Size = UDim2.new(1, 0, 0, 25)
-    presetsLabel.Position = UDim2.new(0, 0, 0, 100)
-    presetsLabel.BackgroundTransparency = 1
-    presetsLabel.Text = "Presets:"
-    presetsLabel.TextColor3 = CONFIG.customColors.textMuted
-    presetsLabel.TextSize = 12
-    presetsLabel.Font = Enum.Font.Gotham
-    presetsLabel.TextXAlignment = Enum.TextXAlignment.Left
-    presetsLabel.Parent = morphContent
-    
-    for i, preset in ipairs(PRESET_MORPHS) do
-        local presetBtn = Instance.new("TextButton")
-        presetBtn.Size = UDim2.new(1, 0, 0, 35)
-        presetBtn.Position = UDim2.new(0, 0, 0, 125 + (i-1) * 40)
-        presetBtn.BackgroundColor3 = CONFIG.customColors.bgElevated
-        presetBtn.Text = preset.displayName
-        presetBtn.TextColor3 = CONFIG.customColors.textPrimary
-        presetBtn.TextSize = 12
-        presetBtn.Font = Enum.Font.Gotham
-        presetBtn.Parent = morphContent
         
-        local presetCorner = Instance.new("UICorner")
-        presetCorner.CornerRadius = UDim.new(0, 6)
-        presetCorner.Parent = presetBtn
+        -- Credit TCS
+        local credit = Instance.new("TextLabel")
+        credit.Size = UDim2.new(1, 0, 0, 30)
+        credit.BackgroundTransparency = 1
+        credit.Text = "by @TCS NOVIDADES"
+        credit.TextColor3 = CONFIG.customColors.ball
+        credit.TextSize = 12
+        credit.Font = Enum.Font.Gotham
+        credit.Parent = scroll
+    end
+    
+    function createMorphTab()
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -20, 1, -20)
+        scroll.Position = UDim2.new(0, 10, 0, 10)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 6
+        scroll.Parent = contentFrame
         
-        presetBtn.MouseButton1Click:Connect(function()
-            if preset.userId then
-                morphToUser(preset.userId, preset.displayName)
-            else
-                notifyError("Erro", "User ID nao carregado ainda!", 2)
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 10)
+        layout.Parent = scroll
+        
+        -- Username Input
+        local inputFrame = Instance.new("Frame")
+        inputFrame.Size = UDim2.new(1, 0, 0, 70)
+        inputFrame.BackgroundColor3 = CONFIG.customColors.bgElevated
+        inputFrame.BorderSizePixel = 0
+        inputFrame.Parent = scroll
+        
+        local inputCorner = Instance.new("UICorner")
+        inputCorner.CornerRadius = UDim.new(0, 10)
+        inputCorner.Parent = inputFrame
+        
+        local inputLabel = Instance.new("TextLabel")
+        inputLabel.Size = UDim2.new(1, -20, 0, 25)
+        inputLabel.Position = UDim2.new(0, 10, 0, 5)
+        inputLabel.BackgroundTransparency = 1
+        inputLabel.Text = "Username para Morph:"
+        inputLabel.TextColor3 = CONFIG.customColors.textPrimary
+        inputLabel.TextSize = 14
+        inputLabel.Font = Enum.Font.GothamBold
+        inputLabel.Parent = inputFrame
+        
+        local usernameBox = Instance.new("TextBox")
+        usernameBox.Size = UDim2.new(1, -20, 0, 30)
+        usernameBox.Position = UDim2.new(0, 10, 0, 35)
+        usernameBox.BackgroundColor3 = CONFIG.customColors.bgCard
+        usernameBox.Text = ""
+        usernameBox.PlaceholderText = "Digite o username..."
+        usernameBox.TextColor3 = CONFIG.customColors.textPrimary
+        usernameBox.TextSize = 14
+        usernameBox.Font = Enum.Font.Gotham
+        usernameBox.Parent = inputFrame
+        
+        local boxCorner = Instance.new("UICorner")
+        boxCorner.CornerRadius = UDim.new(0, 6)
+        boxCorner.Parent = usernameBox
+        
+        -- Morph Button
+        local morphBtn = Instance.new("TextButton")
+        morphBtn.Size = UDim2.new(1, 0, 0, 40)
+        morphBtn.BackgroundColor3 = CONFIG.customColors.secondary
+        morphBtn.Text = "🔄 Aplicar Morph"
+        morphBtn.TextColor3 = Color3.new(1, 1, 1)
+        morphBtn.TextSize = 16
+        morphBtn.Font = Enum.Font.GothamBold
+        morphBtn.Parent = scroll
+        
+        local morphCorner = Instance.new("UICorner")
+        morphCorner.CornerRadius = UDim.new(0, 10)
+        morphCorner.Parent = morphBtn
+        
+        morphBtn.MouseButton1Click:Connect(function()
+            local username = usernameBox.Text
+            if username and username ~= "" then
+                local userId = nil
+                pcall(function()
+                    userId = Players:GetUserIdFromNameAsync(username)
+                end)
+                if userId then
+                    morphToUser(userId, username)
+                else
+                    notifyError("Morph", "Username não encontrado!", 3)
+                end
             end
         end)
+        
+        -- Presets Label
+        local presetLabel = Instance.new("TextLabel")
+        presetLabel.Size = UDim2.new(1, 0, 0, 25)
+        presetLabel.BackgroundTransparency = 1
+        presetLabel.Text = "Presets:"
+        presetLabel.TextColor3 = CONFIG.customColors.textPrimary
+        presetLabel.TextSize = 14
+        presetLabel.Font = Enum.Font.GothamBold
+        presetLabel.Parent = scroll
+        
+        -- Preset Buttons
+        for _, preset in ipairs(PRESET_MORPHS) do
+            local btn = Instance.new("TextButton")
+            btn.Size = UDim2.new(1, 0, 0, 35)
+            btn.BackgroundColor3 = CONFIG.customColors.bgElevated
+            btn.Text = preset.displayName
+            btn.TextColor3 = CONFIG.customColors.textSecondary
+            btn.TextSize = 13
+            btn.Font = Enum.Font.Gotham
+            btn.Parent = scroll
+            
+            local btnCorner = Instance.new("UICorner")
+            btnCorner.CornerRadius = UDim.new(0, 8)
+            btnCorner.Parent = btn
+            
+            btn.MouseButton1Click:Connect(function()
+                if preset.userId then
+                    morphToUser(preset.userId, preset.displayName)
+                else
+                    notifyError("Morph", "ID não carregado ainda, tente novamente!", 2)
+                end
+            end)
+        end
     end
     
-    -- ============================================
-    -- TAB: SKYBOX
-    -- ============================================
-    local skyContent = tabContents.sky
-    
-    local skyTitle = Instance.new("TextLabel")
-    skyTitle.Size = UDim2.new(1, 0, 0, 30)
-    skyTitle.BackgroundTransparency = 1
-    skyTitle.Text = "☁️ SKYBOX SYSTEM"
-    skyTitle.TextColor3 = CONFIG.customColors.accent
-    skyTitle.TextSize = 18
-    skyTitle.Font = Enum.Font.GothamBold
-    skyTitle.TextXAlignment = Enum.TextXAlignment.Left
-    skyTitle.Parent = skyContent
-    
-    local restoreSkyBtn = Instance.new("TextButton")
-    restoreSkyBtn.Size = UDim2.new(1, 0, 0, 35)
-    restoreSkyBtn.BackgroundColor3 = CONFIG.customColors.danger
-    restoreSkyBtn.Text = "↩️ Restaurar Original"
-    restoreSkyBtn.TextColor3 = Color3.new(1, 1, 1)
-    restoreSkyBtn.TextSize = 14
-    restoreSkyBtn.Font = Enum.Font.GothamBold
-    restoreSkyBtn.Parent = skyContent
-    
-    local restoreCorner = Instance.new("UICorner")
-    restoreCorner.CornerRadius = UDim.new(0, 8)
-    restoreCorner.Parent = restoreSkyBtn
-    
-    restoreSkyBtn.MouseButton1Click:Connect(function()
-        restoreOriginalSky()
-    end)
-    
-    local categories = {"Space/Cosmic", "Atmospheric", "Custom"}
-    local catColors = {Color3.fromRGB(100, 100, 255), Color3.fromRGB(100, 255, 100), Color3.fromRGB(255, 100, 100)}
-    
-    local yOffset = 45
-    for catIdx, category in ipairs(categories) do
-        local catLabel = Instance.new("TextLabel")
-        catLabel.Size = UDim2.new(1, 0, 0, 25)
-        catLabel.Position = UDim2.new(0, 0, 0, yOffset)
-        catLabel.BackgroundTransparency = 1
-        catLabel.Text = category
-        catLabel.TextColor3 = catColors[catIdx]
+    function createSkyboxTab()
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -20, 1, -20)
+        scroll.Position = UDim2.new(0, 10, 0, 10)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 6
+        scroll.Parent = contentFrame
         
-        catLabel.Font = Enum.Font.GothamBold
-        catLabel.TextXAlignment = Enum.TextXAlignment.Left
-        catLabel.Parent = skyContent
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 10)
+        layout.Parent = scroll
         
-        yOffset = yOffset + 30
+        -- Restore Button
+        local restoreBtn = Instance.new("TextButton")
+        restoreBtn.Size = UDim2.new(1, 0, 0, 40)
+        restoreBtn.BackgroundColor3 = CONFIG.customColors.warning
+        restoreBtn.Text = "🔄 Restaurar Céu Original"
+        restoreBtn.TextColor3 = Color3.new(1, 1, 1)
+        restoreBtn.TextSize = 16
+        restoreBtn.Font = Enum.Font.GothamBold
+        restoreBtn.Parent = scroll
         
-        for _, sky in ipairs(SkyboxDatabase) do
-            if tonumber(sky.category) == catIdx then
-                local skyBtn = Instance.new("TextButton")
-                skyBtn.Size = UDim2.new(1, 0, 0, 30)
-                skyBtn.Position = UDim2.new(0, 0, 0, yOffset)
-                skyBtn.BackgroundColor3 = CONFIG.customColors.bgElevated
-                skyBtn.Text = sky.name
-                skyBtn.TextColor3 = CONFIG.customColors.textSecondary
-                skyBtn.TextSize = 12
-                skyBtn.Font = Enum.Font.Gotham
-                skyBtn.Parent = skyContent
-                
-                local skyCorner = Instance.new("UICorner")
-                skyCorner.CornerRadius = UDim.new(0, 6)
-                skyCorner.Parent = skyBtn
-                
-                skyBtn.MouseButton1Click:Connect(function()
-                    applySkybox(sky.id)
-                end)
-                
-                yOffset = yOffset + 35
+        local restoreCorner = Instance.new("UICorner")
+        restoreCorner.CornerRadius = UDim.new(0, 10)
+        restoreCorner.Parent = restoreBtn
+        
+        restoreBtn.MouseButton1Click:Connect(function()
+            restoreOriginalSky()
+        end)
+        
+        -- Categorias
+        local categories = {
+            ["1"] = "🌌 Espaço/Cosmos",
+            ["2"] = "☁️ Atmosférico",
+            ["3"] = "🎨 Custom/Artístico"
+        }
+        
+        for catId, catName in pairs(categories) do
+            local catLabel = Instance.new("TextLabel")
+            catLabel.Size = UDim2.new(1, 0, 0, 30)
+            catLabel.BackgroundTransparency = 1
+            catLabel.Text = catName
+            catLabel.TextColor3 = CONFIG.customColors.accent
+            catLabel.TextSize = 16
+            catLabel.Font = Enum.Font.GothamBold
+            catLabel.Parent = scroll
+            
+            for _, sky in ipairs(SkyboxDatabase) do
+                if sky.category == catId then
+                    local btn = Instance.new("TextButton")
+                    btn.Size = UDim2.new(1, 0, 0, 35)
+                    btn.BackgroundColor3 = CONFIG.customColors.bgElevated
+                    btn.Text = sky.name
+                    btn.TextColor3 = CONFIG.customColors.textSecondary
+                    btn.TextSize = 12
+                    btn.Font = Enum.Font.Gotham
+                    btn.Parent = scroll
+                    
+                    local btnCorner = Instance.new("UICorner")
+                    btnCorner.CornerRadius = UDim.new(0, 8)
+                    btnCorner.Parent = btn
+                    
+                    btn.MouseButton1Click:Connect(function()
+                        applySkybox(sky.id)
+                    end)
+                end
             end
         end
-        
-        yOffset = yOffset + 10
     end
     
-    -- ============================================
-    -- TAB: STATS
-    -- ============================================
-    local statsContent = tabContents.stats
-    
-    local statsTitle = Instance.new("TextLabel")
-    statsTitle.Size = UDim2.new(1, 0, 0, 30)
-    statsTitle.BackgroundTransparency = 1
-    statsTitle.Text = "📊 ESTATÍSTICAS"
-    statsTitle.TextColor3 = CONFIG.customColors.success
-    statsTitle.TextSize = 18
-    statsTitle.Font = Enum.Font.GothamBold
-    statsTitle.TextXAlignment = Enum.TextXAlignment.Left
-    statsTitle.Parent = statsContent
-    
-    local statLabels = {}
-    local statNames = {
-        { key = "totalTouches", label = "Total Touches" },
-        { key = "ballsTouched", label = "Bolas Tocadas" },
-        { key = "toteKicks", label = "Chutes Tote" },
-        { key = "morphsDone", label = "Morphs Realizados" },
-        { key = "antiLagItems", label = "Itens Anti-Lag" },
-        { key = "avgPing", label = "Ping Médio (ms)" },
-        { key = "fps", label = "FPS Atual" },
-        { key = "ballsInCache", label = "Bolas em Cache" }
-    }
-    
-    for i, stat in ipairs(statNames) do
-        local statFrame = Instance.new("Frame")
-        statFrame.Size = UDim2.new(1, 0, 0, 35)
-        statFrame.Position = UDim2.new(0, 0, 0, 35 + (i-1) * 40)
-        statFrame.BackgroundColor3 = CONFIG.customColors.bgElevated
-        statFrame.BorderSizePixel = 0
-        statFrame.Parent = statsContent
+    function createStatsTab()
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -20, 1, -20)
+        scroll.Position = UDim2.new(0, 10, 0, 10)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 6
+        scroll.Parent = contentFrame
         
-        local statCorner = Instance.new("UICorner")
-        statCorner.CornerRadius = UDim.new(0, 6)
-        statCorner.Parent = statFrame
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 10)
+        layout.Parent = scroll
         
-        local statLabel = Instance.new("TextLabel")
-        statLabel.Size = UDim2.new(0.6, 0, 1, 0)
-        statLabel.Position = UDim2.new(0, 10, 0, 0)
-        statLabel.BackgroundTransparency = 1
-        statLabel.Text = stat.label .. ":"
-        statLabel.TextColor3 = CONFIG.customColors.textSecondary
-        statLabel.TextSize = 13
-        statLabel.Font = Enum.Font.Gotham
-        statLabel.TextXAlignment = Enum.TextXAlignment.Left
-        statLabel.Parent = statFrame
+        local statsData = {
+            {"⏱️ Tempo de Sessão", function() return formatTime(tick() - STATS.sessionStart) end},
+            {"👆 Total Touches", function() return tostring(STATS.totalTouches) end},
+            {"⚽ Bolas Tocadas", function() return tostring(STATS.ballsTouched) end},
+            {"🎯 Tote Kicks", function() return tostring(STATS.toteKicks) end},
+            {"🚀 Anti-Lag Items", function() return tostring(STATS.antiLagItems) end},
+            {"👤 Morphs Feitos", function() return tostring(STATS.morphsDone) end},
+            {"📶 Ping Médio", function() return tostring(STATS.avgPing) .. " ms" end},
+            {"🎮 FPS", function() return tostring(STATS.fps) end},
+            {"⚡ Bolas em Cache", function() return tostring(STATS.ballsInCache) end}
+        }
         
-        local statValue = Instance.new("TextLabel")
-        statValue.Size = UDim2.new(0.4, -10, 1, 0)
-        statValue.Position = UDim2.new(0.6, 0, 0, 0)
-        statValue.BackgroundTransparency = 1
-        statValue.Text = "0"
-        statValue.TextColor3 = CONFIG.customColors.primary
-        statValue.TextSize = 14
-        statValue.Font = Enum.Font.GothamBold
-        statValue.TextXAlignment = Enum.TextXAlignment.Right
-        statValue.Parent = statFrame   
-        statLabels[stat.key] = statValue
-    end
-    
-    task.spawn(function()
-        while mainGui and mainGui.Parent do
-            for key, label in pairs(statLabels) do
-                pcall(function()
-                    label.Text = tostring(STATS[key] or 0)
-                end)
-            end
-            task.wait(1)
+        for _, stat in ipairs(statsData) do
+            local frame = Instance.new("Frame")
+            frame.Size = UDim2.new(1, 0, 0, 50)
+            frame.BackgroundColor3 = CONFIG.customColors.bgElevated
+            frame.BorderSizePixel = 0
+            frame.Parent = scroll
+            
+            local corner = Instance.new("UICorner")
+            corner.CornerRadius = UDim.new(0, 10)
+            corner.Parent = frame
+            
+            local label = Instance.new("TextLabel")
+            label.Size = UDim2.new(0.6, -10, 1, 0)
+            label.Position = UDim2.new(0, 10, 0, 0)
+            label.BackgroundTransparency = 1
+            label.Text = stat[1]
+            label.TextColor3 = CONFIG.customColors.textSecondary
+            label.TextSize = 14
+            label.Font = Enum.Font.Gotham
+            label.TextXAlignment = Enum.TextXAlignment.Left
+            label.Parent = frame
+            
+            local value = Instance.new("TextLabel")
+            value.Size = UDim2.new(0.4, -10, 1, 0)
+            value.Position = UDim2.new(0.6, 0, 0, 0)
+            value.BackgroundTransparency = 1
+            value.Text = stat[2]()
+            value.TextColor3 = CONFIG.customColors.primary
+            value.TextSize = 16
+            value.Font = Enum.Font.GothamBold
+            value.TextXAlignment = Enum.TextXAlignment.Right
+            value.Parent = frame
+            
+            -- Atualizar valor
+            task.spawn(function()
+                while frame and frame.Parent do
+                    task.wait(1)
+                    if value and value.Parent then
+                        value.Text = stat[2]()
+                    end
+                end
+            end)
         end
-    end)
+    end
     
-    -- ============================================
-    -- TAB: LOGS
-    -- ============================================
-    local logsContent = tabContents.logs
-    
-    local logsTitle = Instance.new("TextLabel")
-    logsTitle.Size = UDim2.new(1, 0, 0, 30)
-    logsTitle.BackgroundTransparency = 1
-    logsTitle.Text = "📜 LOGS"
-    logsTitle.TextColor3 = CONFIG.customColors.info
-    logsTitle.TextSize = 18
-    logsTitle.Font = Enum.Font.GothamBold
-    logsTitle.TextXAlignment = Enum.TextXAlignment.Left
-    logsTitle.Parent = logsContent
-    
-    local logsContainer = Instance.new("ScrollingFrame")
-    logsContainer.Size = UDim2.new(1, 0, 1, -35)
-    logsContainer.Position = UDim2.new(0, 0, 0, 35)
-    logsContainer.BackgroundTransparency = 1
-    logsContainer.BorderSizePixel = 0
-    logsContainer.ScrollBarThickness = 4
-    logsContainer.ScrollBarImageColor3 = CONFIG.customColors.info
-    logsContainer.AutomaticCanvasSize = Enum.AutomaticSize.Y
-    logsContainer.Parent = logsContent
-    
-    local logsListLayout = Instance.new("UIListLayout")
-    logsListLayout.Padding = UDim.new(0, 5)
-    logsListLayout.Parent = logsContainer
-    
-    task.spawn(function()
-        while mainGui and mainGui.Parent do
-            for _, child in ipairs(logsContainer:GetChildren()) do
-                if child:IsA("TextLabel") then
+    function createLogsTab()
+        local scroll = Instance.new("ScrollingFrame")
+        scroll.Size = UDim2.new(1, -20, 1, -20)
+        scroll.Position = UDim2.new(0, 10, 0, 10)
+        scroll.BackgroundTransparency = 1
+        scroll.ScrollBarThickness = 6
+        scroll.Parent = contentFrame
+        
+        local layout = Instance.new("UIListLayout")
+        layout.Padding = UDim.new(0, 5)
+        layout.Parent = scroll
+        
+        local function updateLogs()
+            for _, child in ipairs(scroll:GetChildren()) do
+                if child:IsA("TextLabel") or child:IsA("Frame") then
                     child:Destroy()
                 end
             end
             
             for _, log in ipairs(LOGS) do
-                local logLabel = Instance.new("TextLabel")
-                logLabel.Size = UDim2.new(1, -10, 0, 25)
-                logLabel.BackgroundTransparency = 1
-                logLabel.Text = "[" .. log.time .. "] " .. log.message
-                logLabel.TextColor3 = (log.type == "error" and CONFIG.customColors.danger) or 
-                                      (log.type == "success" and CONFIG.customColors.success) or 
-                                      (log.type == "tote" and CONFIG.customColors.tote) or 
-                                      (log.type == "ball" and CONFIG.customColors.ball) or
-                                      CONFIG.customColors.textSecondary
-                logLabel.TextSize = 11
-                logLabel.Font = Enum.Font.Gotham
-                logLabel.TextXAlignment = Enum.TextXAlignment.Left
-                logLabel.TextWrapped = true
-                logLabel.Parent = logsContainer
+                local logFrame = Instance.new("Frame")
+                logFrame.Size = UDim2.new(1, 0, 0, 40)
+                logFrame.BackgroundColor3 = CONFIG.customColors.bgElevated
+                logFrame.BorderSizePixel = 0
+                logFrame.Parent = scroll
+                
+                local corner = Instance.new("UICorner")
+                corner.CornerRadius = UDim.new(0, 8)
+                corner.Parent = logFrame
+                
+                local typeColors = {
+                    info = CONFIG.customColors.info,
+                    success = CONFIG.customColors.success,
+                    warning = CONFIG.customColors.warning,
+                    error = CONFIG.customColors.danger,
+                    tote = CONFIG.customColors.tote
+                }
+                
+                local indicator = Instance.new("Frame")
+                indicator.Size = UDim2.new(0, 4, 1, -10)
+                indicator.Position = UDim2.new(0, 5, 0, 5)
+                indicator.BackgroundColor3 = typeColors[log.type] or CONFIG.customColors.info
+                indicator.BorderSizePixel = 0
+                indicator.Parent = logFrame
+                
+                local indicatorCorner = Instance.new("UICorner")
+                indicatorCorner.CornerRadius = UDim.new(0, 2)
+                indicatorCorner.Parent = indicator
+                
+                local timeLabel = Instance.new("TextLabel")
+                timeLabel.Size = UDim2.new(0, 50, 0, 20)
+                timeLabel.Position = UDim2.new(0, 15, 0, 5)
+                timeLabel.BackgroundTransparency = 1
+                timeLabel.Text = log.time
+                timeLabel.TextColor3 = CONFIG.customColors.textMuted
+                timeLabel.TextSize = 11
+                timeLabel.Font = Enum.Font.Gotham
+                timeLabel.Parent = logFrame
+                
+                local msgLabel = Instance.new("TextLabel")
+                msgLabel.Size = UDim2.new(1, -20, 0, 20)
+                msgLabel.Position = UDim2.new(0, 15, 0, 20)
+                msgLabel.BackgroundTransparency = 1
+                msgLabel.Text = log.message
+                msgLabel.TextColor3 = CONFIG.customColors.textPrimary
+                msgLabel.TextSize = 12
+                msgLabel.Font = Enum.Font.Gotham
+                msgLabel.TextXAlignment = Enum.TextXAlignment.Left
+                msgLabel.Parent = logFrame
             end
             
-            task.wait(0.5)
+            scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
         end
-    end)
-    
-    -- ============================================
-    -- HANDLERS DOS BOTÕES DE CONTROLE
-    -- ============================================
-    minimizeBtn.MouseButton1Click:Connect(function()
-        isMinimized = not isMinimized
-        if isMinimized then
-            tween(mainFrame, {Size = UDim2.new(0, CONFIG.width, 0, 60)}, 0.3)
-            contentFrame.Visible = false
-            sidebar.Visible = false
-            minimizeBtn.Text = "+"
-        else
-            tween(mainFrame, {Size = UDim2.new(0, CONFIG.width, 0, CONFIG.height)}, 0.3)
-            contentFrame.Visible = true
-            sidebar.Visible = true
-            minimizeBtn.Text = "−"
-        end
-    end)
-    
-    closeBtn.MouseButton1Click:Connect(function()
-        isClosed = true
-        tween(mainFrame, {Position = UDim2.new(0.5, -CONFIG.width/2, 1, 0)}, 0.5, Enum.EasingStyle.Quint, Enum.EasingDirection.In, function()
-            if mainGui then
-                mainGui:Destroy()
-                mainGui = nil
+        
+        updateLogs()
+        
+        -- Atualizar a cada 2 segundos
+        task.spawn(function()
+            while scroll and scroll.Parent do
+                task.wait(2)
+                if scroll and scroll.Parent then
+                    updateLogs()
+                end
             end
-            createFloatingIcon()
         end)
-    end)
+    end
     
-    -- Draggable
-    local dragging = false
-    local dragStart = nil
-    local startPos = nil
+    -- Helper functions para criar elementos UI
+    function createToggle(parent, text, default, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 50)
+        frame.BackgroundColor3 = CONFIG.customColors.bgElevated
+        frame.BorderSizePixel = 0
+        frame.Parent = parent
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = frame
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -70, 1, 0)
+        label.Position = UDim2.new(0, 15, 0, 0)
+        label.BackgroundTransparency = 1
+        label.Text = text
+        label.TextColor3 = CONFIG.customColors.textPrimary
+        label.TextSize = 14
+        label.Font = Enum.Font.Gotham
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        
+        local toggleBtn = Instance.new("TextButton")
+        toggleBtn.Size = UDim2.new(0, 50, 0, 26)
+        toggleBtn.Position = UDim2.new(1, -60, 0.5, -13)
+        toggleBtn.BackgroundColor3 = default and CONFIG.customColors.success or CONFIG.customColors.danger
+        toggleBtn.Text = default and "ON" or "OFF"
+        toggleBtn.TextColor3 = Color3.new(1, 1, 1)
+        toggleBtn.TextSize = 12
+        toggleBtn.Font = Enum.Font.GothamBold
+        toggleBtn.Parent = frame
+        
+        local toggleCorner = Instance.new("UICorner")
+        toggleCorner.CornerRadius = UDim.new(0, 13)
+        toggleCorner.Parent = toggleBtn
+        
+        local state = default
+        toggleBtn.MouseButton1Click:Connect(function()
+            state = not state
+            toggleBtn.BackgroundColor3 = state and CONFIG.customColors.success or CONFIG.customColors.danger
+            toggleBtn.Text = state and "ON" or "OFF"
+            callback(state)
+        end)
+        
+        parent.CanvasSize = UDim2.new(0, 0, 0, parent:FindFirstChildOfClass("UIListLayout").AbsoluteContentSize.Y + 20)
+    end
     
-    header.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = mainFrame.Position
+    function createSlider(parent, text, min, max, default, callback)
+        local frame = Instance.new("Frame")
+        frame.Size = UDim2.new(1, 0, 0, 70)
+        frame.BackgroundColor3 = CONFIG.customColors.bgElevated
+        frame.BorderSizePixel = 0
+        frame.Parent = parent
+        
+        local corner = Instance.new("UICorner")
+        corner.CornerRadius = UDim.new(0, 10)
+        corner.Parent = frame
+        
+        local label = Instance.new("TextLabel")
+        label.Size = UDim2.new(1, -20, 0, 25)
+        label.Position = UDim2.new(0, 15, 0, 5)
+        label.BackgroundTransparency = 1
+        label.Text = text .. ": " .. default
+        label.TextColor3 = CONFIG.customColors.textPrimary
+        label.TextSize = 14
+        label.Font = Enum.Font.Gotham
+        label.TextXAlignment = Enum.TextXAlignment.Left
+        label.Parent = frame
+        
+        local sliderBg = Instance.new("Frame")
+        sliderBg.Size = UDim2.new(1, -30, 0, 8)
+        sliderBg.Position = UDim2.new(0, 15, 0, 45)
+        sliderBg.BackgroundColor3 = CONFIG.customColors.bgCard
+        sliderBg.BorderSizePixel = 0
+        sliderBg.Parent = frame
+        
+        local bgCorner = Instance.new("UICorner")
+        bgCorner.CornerRadius = UDim.new(0, 4)
+        bgCorner.Parent = sliderBg
+        
+        local sliderFill = Instance.new("Frame")
+        sliderFill.Size = UDim2.new((default - min) / (max - min), 0, 1, 0)
+        sliderFill.BackgroundColor3 = CONFIG.customColors.primary
+        sliderFill.BorderSizePixel = 0
+        sliderFill.Parent = sliderBg
+        
+        local fillCorner = Instance.new("UICorner")
+        fillCorner.CornerRadius = UDim.new(0, 4)
+        fillCorner.Parent = sliderFill
+        
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 16, 0, 16)
+        knob.Position = UDim2.new((default - min) / (max - min), -8, 0.5, -8)
+        knob.BackgroundColor3 = CONFIG.customColors.textPrimary
+        knob.BorderSizePixel = 0
+        knob.Parent = sliderBg
+        
+        local knobCorner = Instance.new("UICorner")
+        knobCorner.CornerRadius = UDim.new(1, 0)
+        knobCorner.Parent = knob
+        
+        local dragging = false
+        
+        local function updateSlider(input)
+            local pos = math.clamp((input.Position.X - sliderBg.AbsolutePosition.X) / sliderBg.AbsoluteSize.X, 0, 1)
+            local value = math.floor(min + (pos * (max - min)))
+            
+            sliderFill.Size = UDim2.new(pos, 0, 1, 0)
+            knob.Position = UDim2.new(pos, -8, 0.5, -8)
+            label.Text = text .. ": " .. value
+            
+            callback(value)
         end
-    end)
+        
+        knob.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+            end
+        end)
+        
+        sliderBg.InputBegan:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = true
+                updateSlider(input)
+            end
+        end)
+        
+        UserInputService.InputChanged:Connect(function(input)
+            if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+                updateSlider(input)
+            end
+        end)
+        
+        UserInputService.InputEnded:Connect(function(input)
+            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+                dragging = false
+            end
+        end)
+        
+        parent.CanvasSize = UDim2.new(0, 0, 0, parent:FindFirstChildOfClass("UIListLayout").AbsoluteContentSize.Y + 20)
+    end
     
-    UserInputService.InputChanged:Connect(function(input)
-        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - dragStart
-            mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-        end
-    end)
+    function formatTime(seconds)
+        local mins = math.floor(seconds / 60)
+        local secs = math.floor(seconds % 60)
+        return string.format("%02d:%02d", mins, secs)
+    end
     
-    UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-        end
-    end)
+    -- Inicializar com a primeira aba
+    updateContent()
     
     -- Animação de entrada
     mainFrame.Position = UDim2.new(0.5, -CONFIG.width/2, 1, 0)
-    tween(mainFrame, {Position = UDim2.new(0.5, -CONFIG.width/2, 0.5, -CONFIG.height/2)}, 0.6, Enum.EasingStyle.Back)
+    tween(mainFrame, {Position = UDim2.new(0.5, -CONFIG.width/2, 0.5, -CONFIG.height/2)}, 0.5, Enum.EasingStyle.Back)
     
-    addLog("GUI Carregada - v16.4", "success")
+    notifySuccess("CAFUXZ1 Hub", "Interface carregada com sucesso!", 3)
 end
 
+-- ============================================
+-- ÍCONE FLUTUANTE (MODIFICADO COM ANIMAÇÃO E DRAG)
+-- ============================================
 function createFloatingIcon()
     if iconGui then
         pcall(function() iconGui:Destroy() end)
@@ -3160,6 +2981,7 @@ function createFloatingIcon()
     iconGui.Parent = CoreGui
     
     local iconButton = Instance.new("TextButton")
+    iconButton.Name = "IconButton"
     iconButton.Size = UDim2.new(0, 50, 0, 50)
     iconButton.Position = UDim2.new(1, -70, 0.5, -25)
     iconButton.BackgroundColor3 = CONFIG.customColors.primary
@@ -3178,6 +3000,8 @@ function createFloatingIcon()
     iconStroke.Thickness = 2
     iconStroke.Parent = iconButton
     
+    -- Animação flutuante
+    local floatConnection
     task.spawn(function()
         while iconGui and iconGui.Parent do
             tween(iconButton, {Position = UDim2.new(1, -70, 0.5, -30)}, 1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
@@ -3187,84 +3011,71 @@ function createFloatingIcon()
         end
     end)
     
+    -- Sistema de arrastar o ícone
+    local iconDragging = false
+    local iconDragStart = nil
+    local iconStartPos = nil
+    
+    iconButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            iconDragging = true
+            iconDragStart = input.Position
+            iconStartPos = iconButton.Position
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if iconDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - iconDragStart
+            iconButton.Position = UDim2.new(iconStartPos.X.Scale, iconStartPos.X.Offset + delta.X, iconStartPos.Y.Scale, iconStartPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            iconDragging = false
+        end
+    end)
+    
+    -- Clique para abrir o Hub
     iconButton.MouseButton1Click:Connect(function()
-        isClosed = false
-        iconGui:Destroy()
-        iconGui = nil
-        createMainGUI()
-    end)
-end
-
--- ============================================
--- MAIN LOOP
--- ============================================
-local function mainLoop()
-    if loopRunning then return end
-    loopRunning = true
-    
-    PingSystem:Init()
-    ReachBypass:Init()
-    ToteSystem:Init()
-    BallColorSystem:Init()
-    
-    heartbeatConnection = RunService.Heartbeat:Connect(function()
-        PingSystem:Update()
-        updateBalls()
-        autoTouch()
-        
-        if reachSphere and HRP and HRP.Parent then
-            pcall(function()
-                reachSphere.Position = HRP.Position
-            end)
-        end
-        
-        if arthurSphere and HRP and HRP.Parent then
-            pcall(function()
-                arthurSphere.Position = HRP.Position
-            end)
-        end
-    end)
-    
-    task.delay(12, function()
-        if not isClosed and not mainGui then
+        -- Verifica se não estava arrastando (distância pequena = clique, não drag)
+        if iconDragStart and (UserInputService:GetMouseLocation() - iconDragStart).Magnitude < 5 then
+            isClosed = false
+            iconGui:Destroy()
+            iconGui = nil
             createMainGUI()
         end
     end)
-    
-    addLog("Sistema iniciado - v16.4", "success")
-    notifySuccess("✅ CAFUXZ1 Hub", "v16.4 + @TCS NOVIDADES carregado!", 3)
 end
 
 -- ============================================
 -- INICIALIZAÇÃO
 -- ============================================
-createIntro()
-mainLoop()
+local function initialize()
+    PingSystem:Init()
+    ReachBypass:Init()
+    BallColorSystem:Init()
+    ToteSystem:Init()
+    
+    createIntro()
+    
+    task.delay(12, function()
+        if not mainGui or not mainGui.Parent then
+            createFloatingIcon()
+        end
+    end)
+    
+    mainLoop()
+    
+    print("✅ CAFUXZ1 Hub v16.4 Inicializado com sucesso!")
+    print("✅ Sistemas ativos: Reach, Tote, Anti-Lag, Ball Color, Morph, Skybox")
+end
 
--- Cleanup ao respawn
-LocalPlayer.CharacterAdded:Connect(function(newChar)
-    Character = newChar
-    HRP = newChar:WaitForChild("HumanoidRootPart", 5)
-    
-    if CONFIG.showReachSphere and not reachSphere then
-        createReachSphere()
-    end
-end)
-
-print([[
-    ╔══════════════════════════════════════════╗
-    ║         CAFUXZ1 Hub v16.4                ║
-    ║    + BALL SYSTEM by @TCS NOVIDADES       ║
-    ╚══════════════════════════════════════════╝
-    
-    ✓ Reach Bypass (Double Touch)
-    ✓ Tote System v3.0
-    ✓ Ball Color by @TCS NOVIDADES
-    ✓ Anti-Lag Separado (Textura/Resolução)
-    ✓ Ping Adaptativo
-    ✓ Morph System
-    ✓ Skybox System
-    
-    Comandos:
-    - [T] = Ativar Tote
-]])
+-- Proteção contra erros
+local success, errorMsg = pcall(initialize)
+if not success then
+    warn("❌ Erro na inicialização: " .. tostring(errorMsg))
+    -- Tentar criar interface básica mesmo com erro
+    pcall(createFloatingIcon)
+end
