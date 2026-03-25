@@ -1,8 +1,3 @@
--- ============================================
--- CAFUXZ1 Hub v16.4 - EXPLOIT VERSION
--- ============================================
-
--- Garante que o jogo carregou totalmente antes de rodar
 if not game:IsLoaded() then 
     game.Loaded:Wait() 
 end
