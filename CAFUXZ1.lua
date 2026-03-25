@@ -1,47 +1,54 @@
-if not game:IsLoaded() then 
-    game.Loaded:Wait() 
+local suc, err = pcall(function()
+    return game:GetService("Players")
+end)
+
+if not suc then
+    repeat
+        task.wait(0.1)
+        suc, err = pcall(function()
+            return game:GetService("Players")
+        end)
+    until suc
 end
 
--- Serviços com pcall para evitar erros de permissão em alguns executores
-local function GetService(name)
-    local s, res = pcall(function() return game:GetService(name) end)
-    return s and res or nil
-end
+-- Serviços
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Workspace = game:GetService("Workspace")
+local TweenService = game:GetService("TweenService")
+local StarterGui = game:GetService("StarterGui")
+local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
+local Debris = game:GetService("Debris")
+local Stats = game:GetService("Stats")
 
-local Players = GetService("Players")
-local RunService = GetService("RunService")
-local UserInputService = GetService("UserInputService")
-local Workspace = GetService("Workspace")
-local TweenService = GetService("TweenService")
-local CoreGui = GetService("CoreGui")
-local ReplicatedStorage = GetService("ReplicatedStorage")
-
--- Player e Character (Sistema de Espera Robusto)
 local LocalPlayer = Players.LocalPlayer
-while not LocalPlayer do
+local Character = LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
+local HRP = Character:WaitForChild("HumanoidRootPart", 5)
+
+while not LocalPlayer.Character do
     task.wait(0.1)
-    LocalPlayer = Players.LocalPlayer
 end
-
-local function GetCharacter()
-    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
-end
-
-local Character = GetCharacter()
-local HRP = Character:WaitForChild("HumanoidRootPart", 5) -- Timeout de 5s para não travar
 
 -- ============================================
 -- LIMPEZA ANTI-DUPLICAÇÃO
 -- ============================================
-local function SafeCleanup()
-    -- Limpeza no CoreGui
-    if CoreGui then
-        for _, obj in ipairs(CoreGui:GetChildren()) do
-            if obj.Name:find("CAFUXZ1") or obj.Name:find("TCS_BallSystem") then
-                pcall(function() obj:Destroy() end)
-            end
+pcall(function()
+    for _, obj in ipairs(CoreGui:GetChildren()) do
+        if obj.Name:match("CAFUXZ1") then
+            obj:Destroy()
         end
     end
+end)
+
+pcall(function()
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj.Name:match("CAFUXZ1") then
+            obj:Destroy()
+        end
+    end
+end)
     
     -- Limpeza no Workspace
     for _, obj in ipairs(Workspace:GetChildren()) do
