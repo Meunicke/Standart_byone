@@ -3039,16 +3039,18 @@ function createFloatingIcon()
     
     -- Clique para abrir o Hub
     iconButton.MouseButton1Click:Connect(function()
-        -- Converte iconDragStart para Vector2 para evitar conflito com Vector3
-        local startPos = iconDragStart and Vector2.new(iconDragStart.X, iconDragStart.Y)
-        local currentMousePos = UserInputService:GetMouseLocation()
-
-        -- Verifica se não estava arrastando (distância pequena = clique, não drag)
-        if startPos and (currentMousePos - startPos).Magnitude < 5 then
-            isClosed = false
-            iconGui:Destroy()
-            iconGui = nil
-            createMainGUI()
+        -- Garantimos que iconDragStart seja tratado como Vector2 antes da conta
+        if iconDragStart then
+            local startPos = Vector2.new(iconDragStart.X, iconDragStart.Y)
+            local mousePos = UserInputService:GetMouseLocation()
+            
+            -- Agora a conta é Vector2 - Vector2 (Sem erro!)
+            if (mousePos - startPos).Magnitude < 5 then
+                isClosed = false
+                if iconGui then iconGui:Destroy() end
+                iconGui = nil
+                createMainGUI()
+            end
         end
     end)
 
