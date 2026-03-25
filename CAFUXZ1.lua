@@ -1,4 +1,3 @@
-
 local suc, err = pcall(function()
     return game:GetService("Players")
 end)
@@ -30,14 +29,14 @@ local HRP = Character:WaitForChild("HumanoidRootPart", 5)
 
 while not LocalPlayer.Character do
     task.wait(0.1)
-end 
+end
 
 -- ============================================
 -- LIMPEZA ANTI-DUPLICAÇÃO
 -- ============================================
 pcall(function()
     for _, obj in ipairs(CoreGui:GetChildren()) do
-        if obj.Name:match("CAFUXZ1") then
+        if obj.Name:match("CAFUXZ1") or obj.Name:match("TCS_BallSystem") then
             obj:Destroy()
         end
     end
@@ -50,16 +49,6 @@ pcall(function()
         end
     end
 end)
-    
-    -- Limpeza no Workspace
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj.Name:find("CAFUXZ1") then
-            pcall(function() obj:Destroy() end)
-        end
-    end
-end
-
-pcall(SafeCleanup)
 
 -- ============================================
 -- CONFIGURAÇÕES v16.4 (COM SISTEMA DE BOLA @TCS NOVIDADES)
@@ -76,7 +65,7 @@ local CONFIG = {
     fullBodyTouch = true,
     autoSecondTouch = true,
     scanCooldown = 1.0,
-        
+    
     -- CONTROLE DE AUTO ESCANEAMENTO
     autoScanEnabled = true,
     scanInterval = 0.5,
@@ -1925,7 +1914,8 @@ local function updateBalls()
                 if name:find(ballName:lower()) then
                     isBall = true
                     break
-                           end
+                end
+            end
             
             if isBall and obj.Size.Magnitude < 50 then
                 local alreadyTracked = false
@@ -1936,7 +1926,7 @@ local function updateBalls()
                     end
                 end
                 
-                if not alreadyTracked then
+                                if not alreadyTracked then
                     table.insert(balls, obj)
                 end
             end
@@ -2054,112 +2044,8 @@ local function mainLoop()
 end
 
 -- ============================================
--- FUNÇÃO ÍCONE FLUTUANTE (DEFINIDA ANTES DE USAR)
--- ============================================
-local function createFloatingIcon()
-    if iconGui then
-        pcall(function() iconGui:Destroy() end)
-    end
-    
-    iconGui = Instance.new("ScreenGui")
-    iconGui.Name = "CAFUXZ1_Icon"
-    iconGui.ResetOnSpawn = false
-    iconGui.Parent = CoreGui
-    
-    local iconButton = Instance.new("TextButton")
-    iconButton.Name = "IconButton"
-    iconButton.Size = UDim2.new(0, 50, 0, 50)
-    iconButton.Position = UDim2.new(1, -70, 0.5, -25)
-    iconButton.BackgroundColor3 = CONFIG.customColors.primary
-    iconButton.Text = "⚡"
-    iconButton.TextColor3 = Color3.new(1, 1, 1)
-    iconButton.TextSize = 28
-    iconButton.Font = Enum.Font.GothamBold
-    iconButton.Parent = iconGui
-    
-    local iconCorner = Instance.new("UICorner")
-    iconCorner.CornerRadius = UDim.new(1, 0)
-    iconCorner.Parent = iconButton
-    
-    local iconStroke = Instance.new("UIStroke")
-    iconStroke.Color = CONFIG.customColors.textPrimary
-    iconStroke.Thickness = 2
-    iconStroke.Parent = iconButton
-    
-    -- Animação flutuante
-    task.spawn(function()
-        while iconGui and iconGui.Parent do
-            local success = pcall(function()
-                tween(iconButton, {Position = UDim2.new(1, -70, 0.5, -30)}, 1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-            end)
-            if not success then break end
-            task.wait(1)
-            
-            success = pcall(function()
-                tween(iconButton, {Position = UDim2.new(1, -70, 0.5, -20)}, 1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-            end)
-            if not success then break end
-            task.wait(1)
-        end
-    end)
-    
-    -- Sistema de arrastar o ícone
-    local iconDragging = false
-    local iconDragStart = nil
-    local iconStartPos = nil
-    local hasMoved = false
-    
-    iconButton.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            iconDragging = true
-            hasMoved = false
-            iconDragStart = input.Position
-            iconStartPos = iconButton.Position
-        end
-    end)
-    
-    local inputChangedConn
-    inputChangedConn = UserInputService.InputChanged:Connect(function(input)
-        if iconDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - iconDragStart
-            if delta.Magnitude > 3 then
-                hasMoved = true
-            end
-            pcall(function()
-                iconButton.Position = UDim2.new(iconStartPos.X.Scale, iconStartPos.X.Offset + delta.X, iconStartPos.Y.Scale, iconStartPos.Y.Offset + delta.Y)
-            end)
-        end
-    end)
-    
-    local inputEndedConn
-    inputEndedConn = UserInputService.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            iconDragging = false
-        end
-    end)
-    
-    -- Clique para abrir o Hub
-    iconButton.MouseButton1Click:Connect(function()
-        -- Verifica se não estava arrastando (distância pequena = clique, não drag)
-        if not hasMoved then
-            isClosed = false
-            pcall(function()
-                if inputChangedConn then inputChangedConn:Disconnect() end
-                if inputEndedConn then inputEndedConn:Disconnect() end
-                iconGui:Destroy()
-            end)
-            iconGui = nil
-            createMainGUI()
-        end
-    end)
-end
-
--- ============================================
 -- CRIAÇÃO DA INTERFACE GUI (WINDUI STYLE)
 -- ============================================
-local contentFrame = nil
-local sidebar = nil
-
 local function createMainGUI()
     if mainGui then
         pcall(function() mainGui:Destroy() end)
@@ -2272,19 +2158,15 @@ local function createMainGUI()
         if currentTime - lastClickTime < 0.3 then -- Duplo clique (menos de 0.3s)
             isMinimized = not isMinimized
             if isMinimized then
-                pcall(function()
-                    tween(mainFrame, {Size = UDim2.new(0, CONFIG.width, 0, 50)}, 0.3)
-                    if contentFrame then contentFrame.Visible = false end
-                    if sidebar then sidebar.Visible = false end
-                    minimizeBtn.Text = "+"
-                end)
+                tween(mainFrame, {Size = UDim2.new(0, CONFIG.width, 0, 50)}, 0.3)
+                contentFrame.Visible = false
+                sidebar.Visible = false
+                minimizeBtn.Text = "+"
             else
-                pcall(function()
-                    tween(mainFrame, {Size = UDim2.new(0, CONFIG.width, 0, CONFIG.height)}, 0.3)
-                    if contentFrame then contentFrame.Visible = true end
-                    if sidebar then sidebar.Visible = true end
-                    minimizeBtn.Text = "−"
-                end)
+                tween(mainFrame, {Size = UDim2.new(0, CONFIG.width, 0, CONFIG.height)}, 0.3)
+                contentFrame.Visible = true
+                sidebar.Visible = true
+                minimizeBtn.Text = "−"
             end
         end
         lastClickTime = currentTime
@@ -2428,8 +2310,6 @@ local function createMainGUI()
         createToggle(scroll, "Otimização de Ping", CONFIG.pingOptimization.enabled, function(val)
             CONFIG.pingOptimization.enabled = val
         end)
-        
-        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
     end
     
     function createToteTab()
@@ -2483,8 +2363,6 @@ local function createMainGUI()
         info.TextSize = 14
         info.Font = Enum.Font.GothamBold
         info.Parent = scroll
-        
-        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
     end
     
     function createAntiLagTab()
@@ -2513,8 +2391,6 @@ local function createMainGUI()
         createSlider(scroll, "Escala de Resolução", 30, 100, CONFIG.antiLag.resolutionScale * 100, function(val)
             AntiLagSystem:SetResolution(val / 100)
         end)
-        
-        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
     end
     
     function createBallColorTab()
@@ -2592,8 +2468,6 @@ local function createMainGUI()
         credit.TextSize = 12
         credit.Font = Enum.Font.Gotham
         credit.Parent = scroll
-        
-        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
     end
     
     function createMorphTab()
@@ -2706,8 +2580,6 @@ local function createMainGUI()
                 end
             end)
         end
-        
-        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
     end
     
     function createSkyboxTab()
@@ -2778,8 +2650,6 @@ local function createMainGUI()
                 end
             end
         end
-        
-        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
     end
     
     function createStatsTab()
@@ -2849,8 +2719,6 @@ local function createMainGUI()
                 end
             end)
         end
-        
-        scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
     end
     
     function createLogsTab()
@@ -2924,7 +2792,7 @@ local function createMainGUI()
                 msgLabel.Parent = logFrame
             end
             
-            scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y + 20)
+            scroll.CanvasSize = UDim2.new(0, 0, 0, layout.AbsoluteContentSize.Y)
         end
         
         updateLogs()
@@ -2984,6 +2852,8 @@ local function createMainGUI()
             toggleBtn.Text = state and "ON" or "OFF"
             callback(state)
         end)
+        
+        parent.CanvasSize = UDim2.new(0, 0, 0, parent:FindFirstChildOfClass("UIListLayout").AbsoluteContentSize.Y + 20)
     end
     
     function createSlider(parent, text, min, max, default, callback)
@@ -3066,25 +2936,19 @@ local function createMainGUI()
             end
         end)
         
-        local inputChangedConn = UserInputService.InputChanged:Connect(function(input)
+        UserInputService.InputChanged:Connect(function(input)
             if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
                 updateSlider(input)
             end
         end)
         
-        local inputEndedConn = UserInputService.InputEnded:Connect(function(input)
+        UserInputService.InputEnded:Connect(function(input)
             if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
                 dragging = false
             end
         end)
         
-        -- Cleanup connections when frame is destroyed
-        frame.Destroying:Connect(function()
-            pcall(function()
-                inputChangedConn:Disconnect()
-                inputEndedConn:Disconnect()
-            end)
-        end)
+        parent.CanvasSize = UDim2.new(0, 0, 0, parent:FindFirstChildOfClass("UIListLayout").AbsoluteContentSize.Y + 20)
     end
     
     function formatTime(seconds)
@@ -3101,6 +2965,88 @@ local function createMainGUI()
     tween(mainFrame, {Position = UDim2.new(0.5, -CONFIG.width/2, 0.5, -CONFIG.height/2)}, 0.5, Enum.EasingStyle.Back)
     
     notifySuccess("CAFUXZ1 Hub", "Interface carregada com sucesso!", 3)
+end
+
+-- ============================================
+-- ÍCONE FLUTUANTE (MODIFICADO COM ANIMAÇÃO E DRAG)
+-- ============================================
+function createFloatingIcon()
+    if iconGui then
+        pcall(function() iconGui:Destroy() end)
+    end
+    
+    iconGui = Instance.new("ScreenGui")
+    iconGui.Name = "CAFUXZ1_Icon"
+    iconGui.ResetOnSpawn = false
+    iconGui.Parent = CoreGui
+    
+    local iconButton = Instance.new("TextButton")
+    iconButton.Name = "IconButton"
+    iconButton.Size = UDim2.new(0, 50, 0, 50)
+    iconButton.Position = UDim2.new(1, -70, 0.5, -25)
+    iconButton.BackgroundColor3 = CONFIG.customColors.primary
+    iconButton.Text = "⚡"
+    iconButton.TextColor3 = Color3.new(1, 1, 1)
+    iconButton.TextSize = 28
+    iconButton.Font = Enum.Font.GothamBold
+    iconButton.Parent = iconGui
+    
+    local iconCorner = Instance.new("UICorner")
+    iconCorner.CornerRadius = UDim.new(1, 0)
+    iconCorner.Parent = iconButton
+    
+    local iconStroke = Instance.new("UIStroke")
+    iconStroke.Color = CONFIG.customColors.textPrimary
+    iconStroke.Thickness = 2
+    iconStroke.Parent = iconButton
+    
+    -- Animação flutuante
+    local floatConnection
+    task.spawn(function()
+        while iconGui and iconGui.Parent do
+            tween(iconButton, {Position = UDim2.new(1, -70, 0.5, -30)}, 1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            task.wait(1)
+            tween(iconButton, {Position = UDim2.new(1, -70, 0.5, -20)}, 1, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
+            task.wait(1)
+        end
+    end)
+    
+    -- Sistema de arrastar o ícone
+    local iconDragging = false
+    local iconDragStart = nil
+    local iconStartPos = nil
+    
+    iconButton.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            iconDragging = true
+            iconDragStart = input.Position
+            iconStartPos = iconButton.Position
+        end
+    end)
+    
+    UserInputService.InputChanged:Connect(function(input)
+        if iconDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - iconDragStart
+            iconButton.Position = UDim2.new(iconStartPos.X.Scale, iconStartPos.X.Offset + delta.X, iconStartPos.Y.Scale, iconStartPos.Y.Offset + delta.Y)
+        end
+    end)
+    
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            iconDragging = false
+        end
+    end)
+    
+    -- Clique para abrir o Hub
+    iconButton.MouseButton1Click:Connect(function()
+        -- Verifica se não estava arrastando (distância pequena = clique, não drag)
+        if iconDragStart and (UserInputService:GetMouseLocation() - iconDragStart).Magnitude < 5 then
+            isClosed = false
+            iconGui:Destroy()
+            iconGui = nil
+            createMainGUI()
+        end
+    end)
 end
 
 -- ============================================
@@ -3133,4 +3079,3 @@ if not success then
     -- Tentar criar interface básica mesmo com erro
     pcall(createFloatingIcon)
 end
-
