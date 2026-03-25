@@ -1914,8 +1914,7 @@ local function updateBalls()
                 if name:find(ballName:lower()) then
                     isBall = true
                     break
-                end
-            end
+                           end
             
             if isBall and obj.Size.Magnitude < 50 then
                 local alreadyTracked = false
@@ -1927,24 +1926,6 @@ local function updateBalls()
                 end
                 
                 if not alreadyTracked then
-                    table.insert(balls, obj)
-                end
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-if not alreadyTracked then
                     table.insert(balls, obj)
                 end
             end
@@ -3141,3 +3122,4 @@ if not success then
     -- Tentar criar interface básica mesmo com erro
     pcall(createFloatingIcon)
 end
+
