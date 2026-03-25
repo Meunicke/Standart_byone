@@ -1,17 +1,14 @@
-local suc, err = pcall(function()
-    return game:GetService("Players")
-end)
+-- ============================================
+-- CAFUXZ1 Hub v16.4 - EXPLOIT VERSION
+-- ============================================
 
-if not suc then
-    repeat
-        task.wait(0.1)
-        suc, err = pcall(function()
-            return game:GetService("Players")
-        end)
-    until suc
+-- Verificação de ambiente
+if not game then
+    warn("Este script deve ser executado em um ambiente Roblox!")
+    return
 end
 
--- Serviços
+-- Serviços (com verificação)
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
@@ -22,8 +19,10 @@ local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
 local Debris = game:GetService("Debris")
 local Stats = game:GetService("Stats")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local HttpService = game:GetService("HttpService")
 
--- Esperar jogador carregar
+-- Player e Character (com waits seguros)
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
     repeat
@@ -32,22 +31,15 @@ if not LocalPlayer then
     until LocalPlayer
 end
 
--- Esperar personagem carregar
 local Character = LocalPlayer.Character
 if not Character then
     Character = LocalPlayer.CharacterAdded:Wait()
 end
 
-local HRP = Character:WaitForChild("HumanoidRootPart", 5)
+local HRP = Character:WaitForChild("HumanoidRootPart", 10)
 if not HRP then
     warn("HumanoidRootPart não encontrado!")
 end
-
--- Atualizar Character e HRP quando respawnar
-LocalPlayer.CharacterAdded:Connect(function(char)
-    Character = char
-    HRP = char:WaitForChild("HumanoidRootPart", 5)
-end)
 
 -- ============================================
 -- LIMPEZA ANTI-DUPLICAÇÃO
