@@ -1,64 +1,55 @@
+
 -- ============================================
--- CAFUXZ1 Hub v16.4 - EXPLOIT VERSION
+-- CAFUXZ1 Hub v16.4 - EXPLOIT VERSION (FIXED)
 -- ============================================
 
--- Verificação de ambiente
-if not game then
-    warn("Este script deve ser executado em um ambiente Roblox!")
-    return
+-- 1. Verificação de Ambiente
+if not game:IsLoaded() then 
+    game.Loaded:Wait() 
 end
 
--- Serviços (com verificação)
+-- 2. Serviços
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local TweenService = game:GetService("TweenService")
-local StarterGui = game:GetService("StarterGui")
-local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
-local Debris = game:GetService("Debris")
-local Stats = game:GetService("Stats")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local HttpService = game:GetService("HttpService")
 
--- Player e Character (com waits seguros)
+-- 3. Variáveis do Jogador (Safe Check)
 local LocalPlayer = Players.LocalPlayer
 if not LocalPlayer then
-    repeat
-        task.wait(0.1)
-        LocalPlayer = Players.LocalPlayer
-    until LocalPlayer
+    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+    LocalPlayer = Players.LocalPlayer
 end
 
-local Character = LocalPlayer.Character
-if not Character then
-    Character = LocalPlayer.CharacterAdded:Wait()
+-- Função para pegar o Character de forma segura
+local function GetCharacter()
+    return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
 
+local Character = GetCharacter()
+local Humanoid = Character:WaitForChild("Humanoid", 10)
 local HRP = Character:WaitForChild("HumanoidRootPart", 10)
-if not HRP then
-    warn("HumanoidRootPart não encontrado!")
+
+-- 4. Limpeza Anti-Duplicação (Melhorada)
+local function Cleanup()
+    for _, obj in ipairs(CoreGui:GetChildren()) do
+        if obj.Name:find("CAFUXZ1") or obj.Name:find("TCS_BallSystem") then
+            obj:Destroy()
+        end
+    end
+    
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj.Name:find("CAFUXZ1") then
+            obj:Destroy()
+        end
+    end
 end
 
--- ============================================
--- LIMPEZA ANTI-DUPLICAÇÃO
--- ============================================
-pcall(function()
-    for _, obj in ipairs(CoreGui:GetChildren()) do
-        if obj.Name:match("CAFUXZ1") or obj.Name:match("TCS_BallSystem") then
-            obj:Destroy()
-        end
-    end
-end)
-
-pcall(function()
-    for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj.Name:match("CAFUXZ1") then
-            obj:Destroy()
-        end
-    end
-end)
+pcall(Cleanup)
 
 -- ============================================
 -- CONFIGURAÇÕES v16.4 (COM SISTEMA DE BOLA @TCS NOVIDADES)
