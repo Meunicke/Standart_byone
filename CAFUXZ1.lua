@@ -1,55 +1,62 @@
-
 -- ============================================
--- CAFUXZ1 Hub v16.4 - EXPLOIT VERSION (FIXED)
+-- CAFUXZ1 Hub v16.4 - EXPLOIT VERSION
 -- ============================================
 
--- 1. Verificação de Ambiente
+-- Garante que o jogo carregou totalmente antes de rodar
 if not game:IsLoaded() then 
     game.Loaded:Wait() 
 end
 
--- 2. Serviços
-local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
-local TweenService = game:GetService("TweenService")
-local CoreGui = game:GetService("CoreGui")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
+-- Serviços com pcall para evitar erros de permissão em alguns executores
+local function GetService(name)
+    local s, res = pcall(function() return game:GetService(name) end)
+    return s and res or nil
+end
 
--- 3. Variáveis do Jogador (Safe Check)
+local Players = GetService("Players")
+local RunService = GetService("RunService")
+local UserInputService = GetService("UserInputService")
+local Workspace = GetService("Workspace")
+local TweenService = GetService("TweenService")
+local CoreGui = GetService("CoreGui")
+local ReplicatedStorage = GetService("ReplicatedStorage")
+
+-- Player e Character (Sistema de Espera Robusto)
 local LocalPlayer = Players.LocalPlayer
-if not LocalPlayer then
-    Players:GetPropertyChangedSignal("LocalPlayer"):Wait()
+while not LocalPlayer do
+    task.wait(0.1)
     LocalPlayer = Players.LocalPlayer
 end
 
--- Função para pegar o Character de forma segura
 local function GetCharacter()
     return LocalPlayer.Character or LocalPlayer.CharacterAdded:Wait()
 end
 
 local Character = GetCharacter()
-local Humanoid = Character:WaitForChild("Humanoid", 10)
-local HRP = Character:WaitForChild("HumanoidRootPart", 10)
+local HRP = Character:WaitForChild("HumanoidRootPart", 5) -- Timeout de 5s para não travar
 
--- 4. Limpeza Anti-Duplicação (Melhorada)
-local function Cleanup()
-    for _, obj in ipairs(CoreGui:GetChildren()) do
-        if obj.Name:find("CAFUXZ1") or obj.Name:find("TCS_BallSystem") then
-            obj:Destroy()
+-- ============================================
+-- LIMPEZA ANTI-DUPLICAÇÃO
+-- ============================================
+local function SafeCleanup()
+    -- Limpeza no CoreGui
+    if CoreGui then
+        for _, obj in ipairs(CoreGui:GetChildren()) do
+            if obj.Name:find("CAFUXZ1") or obj.Name:find("TCS_BallSystem") then
+                pcall(function() obj:Destroy() end)
+            end
         end
     end
     
+    -- Limpeza no Workspace
     for _, obj in ipairs(Workspace:GetChildren()) do
         if obj.Name:find("CAFUXZ1") then
-            obj:Destroy()
+            pcall(function() obj:Destroy() end)
         end
     end
 end
 
-pcall(Cleanup)
+pcall(SafeCleanup)
 
 -- ============================================
 -- CONFIGURAÇÕES v16.4 (COM SISTEMA DE BOLA @TCS NOVIDADES)
