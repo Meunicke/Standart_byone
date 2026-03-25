@@ -1,3 +1,4 @@
+
 local suc, err = pcall(function()
     return game:GetService("Players")
 end)
@@ -29,7 +30,7 @@ local HRP = Character:WaitForChild("HumanoidRootPart", 5)
 
 while not LocalPlayer.Character do
     task.wait(0.1)
-end
+end 
 
 -- ============================================
 -- LIMPEZA ANTI-DUPLICAÇÃO
