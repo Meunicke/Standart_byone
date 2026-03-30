@@ -604,6 +604,28 @@ G2L["55"]["CornerRadius"] = UDim.new(0, 5);
 G2L["56"] = Instance.new("LocalScript", G2L["4"]);
 G2L["56"]["Name"] = [[Handler]];
 
+-- StarterGui.DeltaKeyboard.Main.Background.D
+G2L["128"] = Instance.new("TextButton", G2L["4"]);
+G2L["128"]["TextWrapped"] = true;
+G2L["128"]["BackgroundColor3"] = Color3.fromRGB(8, 8, 8);
+G2L["128"]["TextSize"] = 21;
+G2L["128"]["FontFace"] = Font.new([[rbxasset://fonts/families/SourceSansPro.json]], Enum.FontWeight.Regular, Enum.FontStyle.Normal);
+G2L["128"]["TextColor3"] = Color3.fromRGB(255, 255, 255);
+G2L["128"]["Size"] = UDim2.new(0, 25, 0, 25);
+G2L["128"]["Name"] = [[D]];
+G2L["128"]["Text"] = [[D]];
+G2L["128"]["Position"] = UDim2.new(0, 130, 0, 95);
+
+-- StarterGui.DeltaKeyboard.Main.Background.D.UIStroke
+G2L["129"] = Instance.new("UIStroke", G2L["128"]);
+G2L["129"]["Color"] = Color3.fromRGB(255, 255, 255);
+G2L["129"]["ApplyStrokeMode"] = Enum.ApplyStrokeMode.Border;
+
+-- StarterGui.DeltaKeyboard.Main.Background.D.UICorner
+G2L["12a"] = Instance.new("UICorner", G2L["128"]);
+G2L["12a"]["CornerRadius"] = UDim.new(0, 5);
+
+
 -- StarterGui.DeltaKeyboard.Main.Background.G
 G2L["57"] = Instance.new("TextButton", G2L["4"]);
 G2L["57"]["TextWrapped"] = true;
