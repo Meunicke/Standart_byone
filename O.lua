@@ -250,9 +250,9 @@ local S = setmetatable({}, {
             _decoy_key_2 = "__decoy_2__",
             
             -- Misc
-            true = "true",
-            false = "false",
-            nil = "nil",
+             ["true"] = "true",
+["false"] = "false",
+["nil"] = "nil",
             number = "number",
             string = "string",
             boolean = "boolean",
