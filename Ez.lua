@@ -2755,7 +2755,86 @@ function ViewerSupportSystem:InitializeRemotes()
 end
 
 -- Detectar se é Builder ou Viewer
+-- SUBSTITUA a função DetectRole por esta:
 function ViewerSupportSystem:DetectRole()
+    -- Verificar se tem ferramentas de construção
+    local hasBuildTools = false
+    if ModelSystem and SaveSystem then
+        hasBuildTools = true
+    end
+    
+    -- Verificar se já existe um host anunciado
+    local existingHost = self:CheckExistingHost()
+    
+    if hasBuildTools and not existingHost then
+        -- Sou o Host
+        self.IsBuilder = true
+        player:SetAttribute("AGF1_Role", "Builder")
+        print("[ViewerSupport] Modo: BUILDER/HOST")
+        
+        -- ANUNCIAR para todos que sou o Host (via RemoteEvent)
+        task.delay(2, function()
+            self:AnnounceAsHost()
+        end)
+        
+        return "Builder"
+    else
+        -- Sou Viewer
+        self.IsBuilder = false
+        self.HostPlayer = existingHost
+        player:SetAttribute("AGF1_Role", "Viewer")
+        print("[ViewerSupport] Modo: VIEWER")
+        return "Viewer"
+    end
+end
+
+-- NOVA função: Verificar Host existente via RemoteFunction
+function ViewerSupportSystem:CheckExistingHost()
+    -- Criar RemoteFunction para query se necessário
+    local hostChecker = ReplicatedStorage:FindFirstChild("AGF1_HostQuery")
+    if hostChecker then
+        local success, result = pcall(function()
+            return hostChecker:InvokeServer()
+        end)
+        if success and result then
+            return result
+        end
+    end
+    return nil
+end
+
+-- NOVA função: Anunciar como Host para todos os jogadores
+function ViewerSupportSystem:AnnounceAsHost()
+    if not self.IsBuilder then return end
+    
+    -- Criar RemoteEvent de anúncio se não existir
+    local announceEvent = ReplicatedStorage:FindFirstChild("AGF1_HostAnnounce")
+    if not announceEvent then
+        announceEvent = Instance.new("RemoteEvent")
+        announceEvent.Name = "AGF1_HostAnnounce"
+        announceEvent.Parent = ReplicatedStorage
+    end
+    
+    -- Anunciar para todos os jogadores existentes
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player then
+            announceEvent:FireClient(p, player.Name, player.UserId)
+        end
+    end
+    
+    -- E para futuros jogadores
+    Players.PlayerAdded:Connect(function(newPlayer)
+        if newPlayer ~= player then
+            task.delay(1, function()
+                announceEvent:FireClient(newPlayer, player.Name, player.UserId)
+            end)
+        end
+    end)
+    
+    print("[ViewerSupport] Host anunciado para todos os jogadores")
+end
+
+
     -- Verificar se tem ferramentas de construção (indica que é builder)
     local hasBuildTools = false
     
