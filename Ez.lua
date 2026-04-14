@@ -2685,6 +2685,631 @@ function Hub:CreateTabs()
     self:SwitchTab("Models")
 end
 
+
+-- ╔══════════════════════════════════════════════════════════════════════════════╗
+-- ║                     SISTEMA DE VIEWER SUPPORT v1.0                           ║
+-- ║              Compatibilidade com espectadores/cidadãos                       ║
+-- ╚══════════════════════════════════════════════════════════════════════════════╝
+
+local ViewerSupportSystem = {
+    -- Configurações
+    Config = {
+        SyncInterval = 0.5,           -- Intervalo de sync em segundos
+        MaxViewers = 50,              -- Máximo de viewers simultâneos
+        StreamDistance = 1000,        -- Distância máxima de streaming
+        CompressionEnabled = true,    -- Comprimir dados para viewers
+        AllowFreeCam = true,          -- Permitir câmera livre para viewers
+    },
+    
+    -- Estado
+    IsBuilder = false,                -- true = pode construir, false = viewer apenas
+    Viewers = {},                     -- Lista de viewers conectados (se for host)
+    HostPlayer = nil,                 -- Jogador host (se for viewer)
+    SyncFolder = nil,                 -- Pasta de sync na workspace
+    RemoteEvents = {},                -- RemoteEvents criados
+    LastSync = 0,                     -- Último sync
+    BuildHash = "",                   -- Hash da build atual para detectar mudanças
+}
+
+-- Inicializar sistema de RemoteEvents (cria se não existir)
+function ViewerSupportSystem:InitializeRemotes()
+    -- Tentar encontrar pasta existente (se já foi criada por outro script)
+    local remotesFolder = ReplicatedStorage:FindFirstChild("AGF1_Remotes")
+    
+    if not remotesFolder then
+        remotesFolder = Instance.new("Folder")
+        remotesFolder.Name = "AGF1_Remotes"
+        remotesFolder.Parent = ReplicatedStorage
+        
+        -- Criar RemoteEvents
+        local eventNames = {
+            "RequestJoin",           -- Viewer pede para entrar
+            "SyncModel",             -- Host envia modelo para viewer
+            "DeleteModel",           -- Host remove modelo
+            "UpdateTransform",       -- Host atualiza posição/rotação
+            "SyncBuild",             -- Sync completo da build
+            "ViewerJoined",          -- Notifica que viewer entrou
+            "ViewerLeft",            -- Notifica que viewer saiu
+            "RequestFullSync",       -- Viewer pede sync completo
+            "HostChanged",           -- Notifica mudança de host
+            "Ping",                  -- Keep-alive
+        }
+        
+        for _, name in ipairs(eventNames) do
+            local remote = Instance.new("RemoteEvent")
+            remote.Name = name
+            remote.Parent = remotesFolder
+            self.RemoteEvents[name] = remote
+        end
+        
+        print("[ViewerSupport] RemoteEvents criados")
+    else
+        -- Conectar aos existentes
+        for _, child in ipairs(remotesFolder:GetChildren()) do
+            if child:IsA("RemoteEvent") then
+                self.RemoteEvents[child.Name] = child
+            end
+        end
+        print("[ViewerSupport] RemoteEvents conectados")
+    end
+end
+
+-- Detectar se é Builder ou Viewer
+function ViewerSupportSystem:DetectRole()
+    -- Verificar se tem ferramentas de construção (indica que é builder)
+    local hasBuildTools = false
+    
+    -- Verificar se o script atual tem capacidade de build
+    if ModelSystem and SaveSystem then
+        hasBuildTools = true
+    end
+    
+    -- Verificar se já existe um host na sessão
+    local existingHost = nil
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= player and p:GetAttribute("AGF1_IsHost") then
+            existingHost = p
+            break
+        end
+    end
+    
+    if hasBuildTools and not existingHost then
+        -- Sou o primeiro builder = Host
+        self.IsBuilder = true
+        player:SetAttribute("AGF1_IsHost", true)
+        player:SetAttribute("AGF1_Role", "Builder")
+        print("[ViewerSupport] Modo: BUILDER/HOST")
+        return "Builder"
+    else
+        -- Sou viewer ou já existe um host
+        self.IsBuilder = false
+        self.HostPlayer = existingHost
+        player:SetAttribute("AGF1_Role", "Viewer")
+        print("[ViewerSupport] Modo: VIEWER")
+        return "Viewer"
+    end
+end
+
+-- Inicializar como Host (Builder)
+function ViewerSupportSystem:InitializeAsHost()
+    -- Criar pasta de sync na workspace
+    self.SyncFolder = Instance.new("Folder")
+    self.SyncFolder.Name = "AGF1_Sync_" .. player.Name
+    self.SyncFolder.Parent = workspace
+    
+    -- Configurar listeners para viewers
+    self.RemoteEvents.RequestJoin.OnServerEvent = function(_, viewerPlayer)
+        self:HandleViewerJoin(viewerPlayer)
+    end
+    
+    self.RemoteEvents.RequestFullSync.OnServerEvent = function(_, viewerPlayer)
+        self:SendFullSync(viewerPlayer)
+    end
+    
+    -- Loop de sync periódico
+    task.spawn(function()
+        while self.IsBuilder do
+            task.wait(self.Config.SyncInterval)
+            self:SyncChangesToViewers()
+        end
+    end)
+    
+    NotificationSystem:Show("👑 Host Ativo", "Viewers podem conectar-se à sua build!", 5, "SUCCESS")
+end
+
+-- Inicializar como Viewer
+function ViewerSupportSystem:InitializeAsViewer()
+    -- Criar interface de viewer
+    self:CreateViewerUI()
+    
+    -- Conectar ao host se existir
+    if self.HostPlayer then
+        self:ConnectToHost(self.HostPlayer)
+    else
+        -- Aguardar host aparecer
+        local connection
+        connection = Players.PlayerAdded:Connect(function(newPlayer)
+            if newPlayer:GetAttribute("AGF1_IsHost") then
+                self.HostPlayer = newPlayer
+                self:ConnectToHost(newPlayer)
+                connection:Disconnect()
+            end
+        end)
+    end
+    
+    -- Ouvir mudanças de host
+    self.RemoteEvents.HostChanged.OnClientEvent:Connect(function(newHost)
+        self.HostPlayer = newHost
+        if newHost then
+            self:ConnectToHost(newHost)
+        end
+    end)
+end
+
+-- Conectar a um host
+function ViewerSupportSystem:ConnectToHost(hostPlayer)
+    if not hostPlayer then return end
+    
+    NotificationSystem:Show("🔗 Conectando...", "Conectando ao host: " .. hostPlayer.Name, 3, "INFO")
+    
+    -- Pedir para entrar
+    self.RemoteEvents.RequestJoin:FireServer(hostPlayer)
+    
+    -- Configurar listeners de sync
+    self.RemoteEvents.SyncModel.OnClientEvent:Connect(function(modelData)
+        self:ReceiveModel(modelData)
+    end)
+    
+    self.RemoteEvents.DeleteModel.OnClientEvent:Connect(function(modelId)
+        self:DeleteReceivedModel(modelId)
+    end)
+    
+    self.RemoteEvents.UpdateTransform.OnClientEvent:Connect(function(modelId, transform)
+        self:UpdateModelTransform(modelId, transform)
+    end)
+    
+    self.RemoteEvents.SyncBuild.OnClientEvent:Connect(function(buildData)
+        self:ReceiveFullBuild(buildData)
+    end)
+    
+    -- Pedir sync completo após delay
+    task.delay(2, function()
+        self.RemoteEvents.RequestFullSync:FireServer(hostPlayer)
+    end)
+    
+    NotificationSystem:Show("✅ Conectado", "Você está vendo a build de " .. hostPlayer.Name, 5, "SUCCESS")
+end
+
+-- Enviar modelo para viewers (Host)
+function ViewerSupportSystem:BroadcastModel(modelData)
+    if not self.IsBuilder then return end
+    
+    local data = self:SerializeModel(modelData)
+    
+    for viewerPlayer, _ in pairs(self.Viewers) do
+        if viewerPlayer and viewerPlayer.Parent then
+            self.RemoteEvents.SyncModel:FireClient(viewerPlayer, data)
+        end
+    end
+end
+
+-- Serializar modelo para transmissão
+function ViewerSupportSystem:SerializeModel(modelData)
+    local model = modelData.instance
+    if not model then return nil end
+    
+    local parts = {}
+    for _, part in ipairs(model:GetDescendants()) do
+        if part:IsA("BasePart") then
+            table.insert(parts, {
+                name = part.Name,
+                size = {part.Size.X, part.Size.Y, part.Size.Z},
+                position = {part.Position.X, part.Position.Y, part.Position.Z},
+                orientation = {part.Orientation.X, part.Orientation.Y, part.Orientation.Z},
+                color = {part.Color.R, part.Color.G, part.Color.B},
+                material = tostring(part.Material),
+                transparency = part.Transparency,
+                shape = part.Shape.Name,
+                locked = true, -- Viewers não podem editar
+            })
+        end
+    end
+    
+    local pivot = model:GetPivot()
+    local pivotComponents = {pivot:GetComponents()}
+    
+    return {
+        id = modelData.id,
+        name = modelData.name,
+        assetId = modelData.assetId,
+        parts = parts,
+        pivot = pivotComponents,
+        isVehicle = modelData.isVehicle,
+        timestamp = os.time(),
+    }
+end
+
+-- Receber modelo (Viewer)
+function ViewerSupportSystem:ReceiveModel(modelData)
+    if not modelData or not modelData.id then return end
+    
+    -- Criar modelo na workspace
+    local model = Instance.new("Model")
+    model.Name = modelData.name .. "_View"
+    model:SetAttribute("AGF1_ModelId", modelData.id)
+    model:SetAttribute("AGF1_IsRemote", true)
+    
+    -- Criar partes
+    for _, partData in ipairs(modelData.parts) do
+        local part = Instance.new("Part")
+        part.Name = partData.name
+        part.Size = Vector3.new(unpack(partData.size))
+        part.Position = Vector3.new(unpack(partData.position))
+        part.Orientation = Vector3.new(unpack(partData.orientation))
+        part.Color = Color3.new(unpack(partData.color))
+        part.Material = Enum.Material[partData.material] or Enum.Material.SmoothPlastic
+        part.Transparency = partData.transparency
+        part.Anchored = true
+        part.CanCollide = true
+        part.Locked = true -- Impedir edição
+        part.Parent = model
+        
+        -- Aplicar forma se for cilindro/esfera
+        if partData.shape == "Cylinder" then
+            part.Shape = Enum.PartType.Cylinder
+        elseif partData.shape == "Ball" then
+            part.Shape = Enum.PartType.Ball
+        end
+    end
+    
+    -- Aplicar pivot
+    local pivot = CFrame.new(unpack(modelData.pivot))
+    model:PivotTo(pivot)
+    
+    -- Parentear à pasta de sync
+    if not self.SyncFolder then
+        self.SyncFolder = Instance.new("Folder")
+        self.SyncFolder.Name = "AGF1_View"
+        self.SyncFolder.Parent = workspace
+    end
+    model.Parent = self.SyncFolder
+    
+    -- Adicionar highlight para indicar que é remoto
+    local highlight = Instance.new("Highlight")
+    highlight.Name = "ViewerHighlight"
+    highlight.Adornee = model
+    highlight.FillColor = Color3.fromRGB(0, 200, 255)
+    highlight.OutlineColor = Color3.fromRGB(0, 255, 255)
+    highlight.FillTransparency = 0.9
+    highlight.OutlineTransparency = 0.5
+    highlight.Parent = model
+    
+    NotificationSystem:Show("📥 Modelo Recebido", modelData.name .. " sincronizado", 2, "INFO")
+end
+
+-- Atualizar transformação de modelo (Viewer)
+function ViewerSupportSystem:UpdateModelTransform(modelId, transform)
+    if not self.SyncFolder then return end
+    
+    for _, model in ipairs(self.SyncFolder:GetChildren()) do
+        if model:GetAttribute("AGF1_ModelId") == modelId then
+            local newCFrame = CFrame.new(unpack(transform))
+            model:PivotTo(newCFrame)
+            break
+        end
+    end
+end
+
+-- Deletar modelo recebido (Viewer)
+function ViewerSupportSystem:DeleteReceivedModel(modelId)
+    if not self.SyncFolder then return end
+    
+    for _, model in ipairs(self.SyncFolder:GetChildren()) do
+        if model:GetAttribute("AGF1_ModelId") == modelId then
+            model:Destroy()
+            break
+        end
+    end
+end
+
+-- Receber build completa (Viewer)
+function ViewerSupportSystem:ReceiveFullBuild(buildData)
+    if not buildData or not buildData.models then return end
+    
+    -- Limpar modelos existentes
+    if self.SyncFolder then
+        self.SyncFolder:ClearAllChildren()
+    end
+    
+    -- Carregar todos os modelos
+    for _, modelData in ipairs(buildData.models) do
+        self:ReceiveModel(modelData)
+    end
+    
+    NotificationSystem:Show("📦 Build Completa", #buildData.models .. " modelos sincronizados", 4, "SUCCESS")
+end
+
+-- Sync de mudanças (Host)
+function ViewerSupportSystem:SyncChangesToViewers()
+    if not ModelSystem or not ModelSystem.LoadedModels then return end
+    
+    -- Verificar mudanças em modelos existentes
+    for _, modelData in ipairs(ModelSystem.LoadedModels) do
+        if modelData.instance and modelData.instance.Parent then
+            -- Verificar se posição mudou
+            local currentPivot = modelData.instance:GetPivot()
+            local lastPivot = modelData.lastSyncPivot
+            
+            if not lastPivot or (currentPivot.Position - lastPivot.Position).Magnitude > 0.1 then
+                -- Enviar update de transformação
+                for viewerPlayer, _ in pairs(self.Viewers) do
+                    if viewerPlayer and viewerPlayer.Parent then
+                        local pivotComponents = {currentPivot:GetComponents()}
+                        self.RemoteEvents.UpdateTransform:FireClient(viewerPlayer, modelData.id, pivotComponents)
+                    end
+                end
+                modelData.lastSyncPivot = currentPivot
+            end
+        end
+    end
+end
+
+-- Enviar sync completo para viewer específico (Host)
+function ViewerSupportSystem:SendFullSync(viewerPlayer)
+    if not ModelSystem or not ModelSystem.LoadedModels then return end
+    
+    local buildData = {
+        models = {},
+        hostName = player.Name,
+        timestamp = os.time(),
+    }
+    
+    for _, modelData in ipairs(ModelSystem.LoadedModels) do
+        local serialized = self:SerializeModel(modelData)
+        if serialized then
+            table.insert(buildData.models, serialized)
+        end
+    end
+    
+    self.RemoteEvents.SyncBuild:FireClient(viewerPlayer, buildData)
+end
+
+-- Lidar com viewer entrando (Host)
+function ViewerSupportSystem:HandleViewerJoin(viewerPlayer)
+    if not viewerPlayer or viewerPlayer == player then return end
+    
+    -- Adicionar à lista de viewers
+    self.Viewers[viewerPlayer] = {
+        joinedAt = os.time(),
+        lastPing = os.time(),
+    }
+    
+    -- Notificar outros viewers
+    for otherViewer, _ in pairs(self.Viewers) do
+        if otherViewer ~= viewerPlayer and otherViewer.Parent then
+            self.RemoteEvents.ViewerJoined:FireClient(otherViewer, viewerPlayer.Name)
+        end
+    end
+    
+    print("[ViewerSupport] Viewer conectado: " .. viewerPlayer.Name)
+    NotificationSystem:Show("👤 Viewer Entrou", viewerPlayer.Name .. " está vendo sua build", 3, "INFO")
+end
+
+-- Criar UI para Viewers
+function ViewerSupportSystem:CreateViewerUI()
+    local viewerGui = Instance.new("ScreenGui")
+    viewerGui.Name = "AGF1_ViewerUI"
+    viewerGui.ResetOnSpawn = false
+    viewerGui.Parent = guiParent
+    
+    -- Frame principal
+    local mainFrame = Instance.new("Frame")
+    mainFrame.Name = "ViewerFrame"
+    mainFrame.Size = UDim2.new(0, 300, 0, 150)
+    mainFrame.Position = UDim2.new(0, 20, 0, 20)
+    mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+    mainFrame.BackgroundTransparency = 0.1
+    mainFrame.BorderSizePixel = 0
+    mainFrame.Parent = viewerGui
+    
+    local corner = Instance.new("UICorner", mainFrame)
+    corner.CornerRadius = UDim.new(0, 16)
+    
+    local stroke = Instance.new("UIStroke", mainFrame)
+    stroke.Color = Color3.fromRGB(0, 200, 255)
+    stroke.Thickness = 2
+    stroke.Transparency = 0.3
+    
+    -- Header
+    local header = Instance.new("Frame", mainFrame)
+    header.Size = UDim2.new(1, 0, 0, 40)
+    header.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
+    header.BackgroundTransparency = 0.3
+    header.BorderSizePixel = 0
+    
+    local headerCorner = Instance.new("UICorner", header)
+    headerCorner.CornerRadius = UDim.new(0, 16)
+    
+    local title = Instance.new("TextLabel", header)
+    title.Size = UDim2.new(1, -20, 1, 0)
+    title.Position = UDim2.new(0, 15, 0, 0)
+    title.BackgroundTransparency = 1
+    title.Text = "👁️ MODO ESPECTADOR"
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
+    title.Font = Enum.Font.GothamBlack
+    title.TextSize = 16
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    
+    -- Info
+    local info = Instance.new("TextLabel", mainFrame)
+    info.Name = "InfoLabel"
+    info.Size = UDim2.new(1, -30, 0, 80)
+    info.Position = UDim2.new(0, 15, 0, 50)
+    info.BackgroundTransparency = 1
+    info.Text = "Aguardando host...\nVocê está no modo visualização apenas."
+    info.TextColor3 = Color3.fromRGB(200, 200, 200)
+    info.Font = Enum.Font.GothamMedium
+    info.TextSize = 12
+    info.TextWrapped = true
+    info.TextXAlignment = Enum.TextXAlignment.Left
+    info.TextYAlignment = Enum.TextYAlignment.Top
+    
+    -- Botão FreeCam
+    local freeCamBtn = Instance.new("TextButton", mainFrame)
+    freeCamBtn.Size = UDim2.new(0, 120, 0, 35)
+    freeCamBtn.Position = UDim2.new(0, 15, 1, -45)
+    freeCamBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 150)
+    freeCamBtn.Text = "📷 Câmera Livre"
+    freeCamBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    freeCamBtn.Font = Enum.Font.GothamBold
+    freeCamBtn.TextSize = 12
+    
+    local btnCorner = Instance.new("UICorner", freeCamBtn)
+    btnCorner.CornerRadius = UDim.new(0, 8)
+    
+    freeCamBtn.MouseButton1Click:Connect(function()
+        self:ToggleFreeCam()
+    end)
+    
+    -- Atualizar info quando conectar
+    task.spawn(function()
+        while info and info.Parent do
+            if self.HostPlayer then
+                local modelCount = self.SyncFolder and #self.SyncFolder:GetChildren() or 0
+                info.Text = string.format(
+                    "Host: %s\nModelos: %d\nModo: Visualização Apenas\nF3: Info | F4: FreeCam",
+                    self.HostPlayer.Name,
+                    modelCount
+                )
+            else
+                info.Text = "Procurando host...\nAguarde um builder iniciar."
+            end
+            task.wait(1)
+        end
+    end)
+    
+    self.ViewerUI = viewerGui
+end
+
+-- Sistema de Câmera Livre para Viewers
+function ViewerSupportSystem:ToggleFreeCam()
+    if not self.FreeCam then
+        self.FreeCam = {
+            Enabled = false,
+            Pos = Camera.CFrame.Position,
+            Rot = Vector2.new(0, 0),
+            Connection = nil
+        }
+    end
+    
+    local fc = self.FreeCam
+    
+    if fc.Enabled then
+        -- Desativar
+        fc.Enabled = false
+        if fc.Connection then
+            fc.Connection:Disconnect()
+            fc.Connection = nil
+        end
+        Camera.CameraType = Enum.CameraType.Custom
+        NotificationSystem:Show("📷 Câmera", "Câmera livre desativada", 2, "INFO")
+    else
+        -- Ativar
+        fc.Enabled = true
+        Camera.CameraType = Enum.CameraType.Scriptable
+        
+        local lastMousePos = UserInputService:GetMouseLocation()
+        
+        fc.Connection = RunService.RenderStepped:Connect(function(dt)
+            if not fc.Enabled then return end
+            
+            -- Movimento WASD
+            local moveVec = Vector3.new()
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then
+                moveVec = moveVec + Camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then
+                moveVec = moveVec - Camera.CFrame.LookVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then
+                moveVec = moveVec - Camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then
+                moveVec = moveVec + Camera.CFrame.RightVector
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.E) then
+                moveVec = moveVec + Vector3.new(0, 1, 0)
+            end
+            if UserInputService:IsKeyDown(Enum.KeyCode.Q) then
+                moveVec = moveVec - Vector3.new(0, 1, 0)
+            end
+            
+            local speed = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and 100 or 50
+            fc.Pos = fc.Pos + (moveVec.Unit * speed * dt)
+            
+            -- Rotação com mouse direito
+            if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseRight) then
+                local currentPos = UserInputService:GetMouseLocation()
+                local delta = currentPos - lastMousePos
+                fc.Rot = fc.Rot + Vector2.new(delta.X, delta.Y) * 0.3
+                lastMousePos = currentPos
+            else
+                lastMousePos = UserInputService:GetMouseLocation()
+            end
+            
+            -- Aplicar CFrame
+            Camera.CFrame = CFrame.new(fc.Pos) 
+                * CFrame.Angles(0, math.rad(fc.Rot.X), 0) 
+                * CFrame.Angles(math.rad(math.clamp(fc.Rot.Y, -80, 80)), 0, 0)
+        end)
+        
+        NotificationSystem:Show("📷 Câmera Livre", "WASD: Mover | Q/E: Subir/Descer | Shift: Velocidade", 4, "INFO")
+    end
+end
+
+-- Atalhos para Viewers
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if not self.IsBuilder and self.ViewerUI then -- Só para viewers
+        if input.KeyCode == Enum.KeyCode.F3 then
+            self.ViewerUI.Enabled = not self.ViewerUI.Enabled
+        elseif input.KeyCode == Enum.KeyCode.F4 then
+            self:ToggleFreeCam()
+        end
+    end
+end)
+
+-- Inicialização do Sistema
+function ViewerSupportSystem:Init()
+    self:InitializeRemotes()
+    local role = self:DetectRole()
+    
+    if role == "Builder" then
+        self:InitializeAsHost()
+        
+        -- Hook no ModelSystem para auto-sync
+        local originalLoadModel = ModelSystem.LoadModel
+        ModelSystem.LoadModel = function(self, assetId, options)
+            local modelData = originalLoadModel(self, assetId, options)
+            if modelData then
+                ViewerSupportSystem:BroadcastModel(modelData)
+            end
+            return modelData
+        end
+        
+    else
+        self:InitializeAsViewer()
+    end
+end
+
+-- Adicionar ao Hub existente
+task.delay(2, function()
+    ViewerSupportSystem:Init()
+end)
+
+print("[ViewerSupport] Sistema de Viewer Support v1.0 carregado")
+
+
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
 -- ║                     INICIALIZAÇÃO                                            ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
