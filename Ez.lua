@@ -1,11 +1,3 @@
---[[
-    ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║                    AQUILESGAMEF1 HUB v4.2 - FULLY FIXED                      ║
-    ║              Save System & Vehicle Script 100% FUNCIONANDO                 ║
-    ║                        VehicleAI v6.0 Integrated                             ║
-    ╚══════════════════════════════════════════════════════════════════════════════╝
-]]
-
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
 -- ║                     SERVICES & CONFIGURAÇÃO                                  ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -19,6 +11,8 @@ local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local MarketplaceService = game:GetService("MarketplaceService")
 local InsertService = game:GetService("InsertService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")  -- ADICIONAR ESTA LINHA
+
 
 local player = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
