@@ -155,12 +155,49 @@ function ConnectionSystem:FindRemotes()
 end
 
 function ConnectionSystem:FindHost()
-    -- Procurar por jogador com tag de Host
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p:GetAttribute("AGF1_IsHost") then
-            return p
+    -- Método 1: Procurar por jogador que anunciou ser Host via RemoteEvent
+    -- O Host envia um anúncio quando entra no jogo
+    
+    -- Configurar listener para receber anúncio do Host
+    local announceEvent = ReplicatedStorage:FindFirstChild("AGF1_HostAnnounce")
+    if announceEvent then
+        -- Se já existe, conectar para receber futuros anúncios
+        announceEvent.OnClientEvent:Connect(function(hostName, hostUserId)
+            local hostPlayer = Players:FindFirstChild(hostName)
+            if hostPlayer and hostPlayer.UserId == hostUserId then
+                self.HostPlayer = hostPlayer
+                if not self.Connected then
+                    NotificationSystem:Show("🔗 Host Encontrado!", "Conectando a " .. hostName, 3, "INFO")
+                    self:ConnectToHost(hostPlayer)
+                end
+            end
+        end)
+    end
+    
+    -- Método 2: Verificar se já existe pasta de sync do Host na workspace
+    for _, obj in ipairs(Workspace:GetChildren()) do
+        if obj:IsA("Folder") and obj.Name:match("^AGF1_Sync_") then
+            local hostName = obj.Name:gsub("^AGF1_Sync_", "")
+            local hostPlayer = Players:FindFirstChild(hostName)
+            if hostPlayer then
+                return hostPlayer
+            end
         end
     end
+    
+    -- Método 3: Verificar todos os jogadores por atributo (fallback)
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            -- Tentar verificar se é host (pode não funcionar por replicação)
+            local success, isHost = pcall(function()
+                return p:GetAttribute("AGF1_IsHost")
+            end)
+            if success and isHost then
+                return p
+            end
+        end
+    end
+    
     return nil
 end
 
@@ -251,22 +288,28 @@ end
 function ConnectionSystem:Initialize()
     NotificationSystem:Show("🚀 Viewer Client", "v" .. CONFIG.VERSION .. " Iniciando...", 3, "INFO")
     
-    -- Aguardar Remotes
-    if not self:FindRemotes() then
+    -- Tentar encontrar Remotes
+    local foundRemotes = self:FindRemotes()
+    
+    if not foundRemotes then
         NotificationSystem:Show("⏳ Aguardando...", "Aguardando Host criar servidor...", 5, "INFO")
         
-        -- Aguardar pasta ser criada
+        -- Aguardar pasta de Remotes ser criada
         local connection
         connection = ReplicatedStorage.ChildAdded:Connect(function(child)
             if child.Name == "AGF1_Remotes" then
                 connection:Disconnect()
                 self:FindRemotes()
-                local host = self:FindHost()
-                if host then
-                    self:ConnectToHost(host)
-                else
-                    self:AttemptReconnect()
-                end
+                
+                -- Agora tentar encontrar Host
+                task.delay(1, function()
+                    local host = self:FindHost()
+                    if host then
+                        self:ConnectToHost(host)
+                    else
+                        self:AttemptReconnect()
+                    end
+                end)
             end
         end)
         
@@ -274,24 +317,46 @@ function ConnectionSystem:Initialize()
         task.delay(30, function()
             if connection.Connected then
                 connection:Disconnect()
-                NotificationSystem:Show("❌ Timeout", "Nenhum Host encontrado", 5, "ERROR")
+                if not self.Connected then
+                    NotificationSystem:Show("❌ Timeout", "Nenhum Host encontrado", 5, "ERROR")
+                end
             end
         end)
     else
-        -- Remotes já existem, conectar direto
-        local host = self:FindHost()
-        if host then
-            self:ConnectToHost(host)
-        else
-            self:AttemptReconnect()
-        end
+        -- Remotes já existem, tentar conectar
+        task.delay(1, function()
+            local host = self:FindHost()
+            if host then
+                self:ConnectToHost(host)
+            else
+                -- Host ainda não anunciou, aguardar
+                NotificationSystem:Show("⏳ Aguardando Host...", "Procurando builder...", 3, "INFO")
+                self:AttemptReconnect()
+            end
+        end)
     end
     
     -- Ouvir novos jogadores (Host pode entrar depois)
     Players.PlayerAdded:Connect(function(newPlayer)
-        if newPlayer:GetAttribute("AGF1_IsHost") and not self.Connected then
-            self:ConnectToHost(newPlayer)
-        end
+        -- Verificar se é Host quando entrar
+        task.delay(2, function()
+            if not self.Connected then
+                -- Verificar pasta de sync
+                local syncFolder = Workspace:FindFirstChild("AGF1_Sync_" .. newPlayer.Name)
+                if syncFolder then
+                    self:ConnectToHost(newPlayer)
+                    return
+                end
+                
+                -- Tentar atributo
+                local success, isHost = pcall(function()
+                    return newPlayer:GetAttribute("AGF1_IsHost")
+                end)
+                if success and isHost then
+                    self:ConnectToHost(newPlayer)
+                end
+            end
+        end)
     end)
 end
 
