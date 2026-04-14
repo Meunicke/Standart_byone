@@ -463,6 +463,7 @@ function ModelSystem.VehicleAI:CreateSmartWheels(model, chassis, config)
         axle.Massless = true
         axle.Parent = model
         
+        -- Attachments para Suspensão
         local attachChassis = Instance.new("Attachment")
         attachChassis.Name = "SuspensionAttach"
         attachChassis.Position = wheelData.pos + Vector3.new(0, 0.5, 0)
@@ -472,6 +473,7 @@ function ModelSystem.VehicleAI:CreateSmartWheels(model, chassis, config)
         attachAxle.Name = "ChassisAttach"
         attachAxle.Parent = axle
         
+        -- SpringConstraint para suspensão
         local spring = Instance.new("SpringConstraint")
         spring.Attachment0 = attachChassis
         spring.Attachment1 = attachAxle
@@ -482,15 +484,27 @@ function ModelSystem.VehicleAI:CreateSmartWheels(model, chassis, config)
         spring.Damping = config.suspensionDamping or 20
         spring.Parent = axle
         
+        -- Attachments para a Roda (HingeConstraint usa Attachments!)
+        local attachWheelAxle = Instance.new("Attachment")
+        attachWheelAxle.Name = "AxleAttachment"
+        attachWheelAxle.Parent = axle
+        
+        local attachWheel = Instance.new("Attachment")
+        attachWheel.Name = "WheelAttachment"
+        attachWheel.Parent = wheel
+        attachWheel.CFrame = CFrame.Angles(0, math.pi/2, 0)
+        
+        -- HingeConstraint para rotação da roda (MOTOR)
         local wheelHinge = Instance.new("HingeConstraint")
         wheelHinge.Name = "WheelMotor"
-        wheelHinge.Part0 = axle
-        wheelHinge.Part1 = wheel
+        wheelHinge.Attachment0 = attachWheelAxle
+        wheelHinge.Attachment1 = attachWheel
         wheelHinge.ActuatorType = Enum.ActuatorType.Motor
         wheelHinge.MotorMaxTorque = 10000
         wheelHinge.MotorMaxAcceleration = 20
-        wheelHinge.Parent = wheel
+        wheelHinge.Parent = axle
         
+        -- Weld do eixo ao chassis
         local axleWeld = Instance.new("Weld")
         axleWeld.Part0 = chassis
         axleWeld.Part1 = axle
@@ -510,6 +524,8 @@ function ModelSystem.VehicleAI:CreateSmartWheels(model, chassis, config)
     return wheels
 end
 
+        
+        
 function ModelSystem.VehicleAI:CreateVehicleController(model, chassis, wheels, seat, config)
     config = config or {}
     
