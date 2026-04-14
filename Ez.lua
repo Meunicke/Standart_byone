@@ -3392,6 +3392,15 @@ print("[ViewerSupport] Sistema de Viewer Support v1.0 carregado")
 -- ╔══════════════════════════════════════════════════════════════════════════════╗
 -- ║                     INICIALIZAÇÃO                                            ║
 -- ╚══════════════════════════════════════════════════════════════════════════════╝
+
+function ViewerSupportSystem:InitializeAsHost()
+    -- ... código existente ...
+    
+    self:SetupHostQuery() 
+    
+end
+
+
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if not gameProcessed and input.KeyCode == Enum.KeyCode.Insert then
         Hub:ToggleMinimize()
