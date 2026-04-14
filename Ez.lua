@@ -654,14 +654,13 @@ function ModelSystem.VehicleAI:BuildVehicle(model, config)
     local wheels = self:CreateSmartWheels(model, chassis, config)
     
     local seat = Instance.new("VehicleSeat")
-    seat.Name = "DriveSeat"
-    seat.Size = Vector3.new(2, 1, 2)
-    seat.Position = chassis.Position + Vector3.new(0, chassis.Size.Y/2 + 1, 0)
-    seat.Headrest = true
-    seat.Torque = 10000
-    seat.TurnSpeed = 10
-    seat.MaxSpeed = config.maxSpeed or 100
-    seat.Parent = model
+seat.Name = "DriveSeat"
+seat.Size = Vector3.new(2, 1, 2)
+seat.Position = chassis.Position + Vector3.new(0, chassis.Size.Y/2 + 1, 0)
+seat.Torque = 10000
+seat.TurnSpeed = 10
+seat.MaxSpeed = config.maxSpeed or 100
+seat.Parent = model
     
     self:CreateUnbreakableWeld(chassis, seat, CFrame.new(0, chassis.Size.Y/2 + 0.5, 0), CFrame.new())
     
