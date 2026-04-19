@@ -1,833 +1,642 @@
---[[
-    ╔══════════════════════════════════════════════════════════════════════════════╗
-    ║              AQUILESGAMEF1 VIEWER CLIENT v1.0                                ║
-    ║         Script para Espectadores - Apenas Visualização                       ║
-    ║                                                                              ║
-    ║  Instruções:                                                                 ║
-    ║  1. Execute este script no mesmo servidor do Builder                         ║
-    ║  2. Aguarde conectar automaticamente ao Host                                 ║
-    ║  3. Use F4 para Câmera Livre, F3 para esconder/mostrar UI                    ║
-    ╚══════════════════════════════════════════════════════════════════════════════╝
-]]
+--// aquilesgamef1 Viewer Client v1.0
+--// Script standalone para espectadores
+--// Compatível com aquilesgamef1 Hub v4.2+
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UserInputService = game:GetService("UserInputService")
 local TweenService = game:GetService("TweenService")
-local CoreGui = game:GetService("CoreGui")
+local HttpService = game:GetService("HttpService")
+local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
-local Lighting = game:GetService("Lighting")
+local StarterGui = game:GetService("StarterGui")
 
+--// SAFE INITIALIZATION
 local LocalPlayer = Players.LocalPlayer
-local Camera = Workspace.CurrentCamera
+if not LocalPlayer then
+    repeat task.wait() until Players.LocalPlayer
+    LocalPlayer = Players.LocalPlayer
+end
 
--- Configurações do Viewer
-local CONFIG = {
-    VERSION = "1.0",
-    SYNC_INTERVAL = 0.5,
-    MAX_RECONNECT_ATTEMPTS = 10,
-    FREE_CAM_SPEED = 50,
-    FREE_CAM_FAST_SPEED = 100,
-    STREAM_DISTANCE = 2000,
-    THEME = {
-        primary = Color3.fromRGB(0, 200, 255),
-        background = Color3.fromRGB(15, 15, 20),
-        accent = Color3.fromRGB(255, 255, 255)
-    }
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui", 30)
+
+--// REMOTES SETUP (Mesmos nomes do Hub)
+local Remotes = ReplicatedStorage:WaitForChild("AGF1_Remotes", 10)
+if not Remotes then
+    -- Criar se não existir (caso execute antes do Host)
+    Remotes = Instance.new("Folder")
+    Remotes.Name = "AGF1_Remotes"
+    Remotes.Parent = ReplicatedStorage
+end
+
+local function GetRemote(name, className)
+    className = className or "RemoteEvent"
+    local remote = Remotes:FindFirstChild(name)
+    if not remote then
+        remote = Instance.new(className)
+        remote.Name = name
+        remote.Parent = Remotes
+    end
+    return remote
+end
+
+local HostAnnounceRemote = GetRemote("HostAnnounce", "RemoteEvent")
+local ViewerJoinRemote = GetRemote("ViewerJoin", "RemoteEvent")
+local ViewerLeaveRemote = GetRemote("ViewerLeave", "RemoteEvent")
+local SyncModelRemote = GetRemote("SyncModel", "RemoteEvent")
+local RequestModelRemote = GetRemote("RequestModel", "RemoteEvent")
+
+--// VIEWER STATE
+local Viewer = {
+    Connected = false,
+    HostPlayer = nil,
+    FreeCam = false,
+    Camera = Workspace.CurrentCamera,
+    FreeCamCFrame = CFrame.new(),
+    Movement = Vector3.new(),
+    Speed = 50,
+    ShiftSpeed = 100,
+    Sensitivity = 0.3,
+    ReceivedParts = 0,
+    LastSync = 0
 }
 
--- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║                     SISTEMA DE NOTIFICAÇÕES                                  ║
--- ╚══════════════════════════════════════════════════════════════════════════════╝
-local NotificationSystem = {}
-local activeNotifications = {}
-local notifGui = Instance.new("ScreenGui")
-notifGui.Name = "AGF1_ViewerNotifications"
-notifGui.ResetOnSpawn = false
-notifGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-notifGui.Parent = CoreGui
+--// UTILITY
+local function CreateInstance(class, props)
+    local obj = Instance.new(class)
+    if props then
+        for k, v in pairs(props) do
+            pcall(function() obj[k] = v end)
+        end
+    end
+    return obj
+end
 
-function NotificationSystem:Show(title, message, duration, ntype)
-    duration = duration or 4
-    ntype = ntype or "INFO"
-    local color = ntype == "SUCCESS" and Color3.fromRGB(0, 255, 150) or 
-                  ntype == "ERROR" and Color3.fromRGB(255, 80, 80) or 
-                  ntype == "WARNING" and Color3.fromRGB(255, 200, 0) or 
-                  CONFIG.THEME.primary
+local function Notify(title, text, duration)
+    duration = duration or 3
+    local screenGui = PlayerGui:FindFirstChild("AGF1_Viewer_GUI")
+    if not screenGui then return end
     
-    local container = Instance.new("Frame")
-    container.Size = UDim2.new(0, 320, 0, 80)
-    container.Position = UDim2.new(1, 350, 1, -12)
-    container.AnchorPoint = Vector2.new(1, 1)
-    container.BackgroundTransparency = 1
-    container.ZIndex = 1000
-    container.Parent = notifGui
+    local notif = CreateInstance("Frame", {
+        Size = UDim2.new(0, 320, 0, 70),
+        Position = UDim2.new(1, 20, 1, -90),
+        BackgroundColor3 = Color3.fromRGB(30, 30, 35),
+        BorderSizePixel = 0,
+        Parent = screenGui
+    })
+    CreateInstance("UICorner", {CornerRadius = UDim.new(0, 8), Parent = notif})
+    CreateInstance("UIStroke", {Color = Color3.fromRGB(0, 170, 255), Thickness = 1, Parent = notif})
     
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Size = UDim2.new(1, 0, 1, 0)
-    mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
-    mainFrame.BackgroundTransparency = 0.1
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Parent = container
+    local tTitle = CreateInstance("TextLabel", {
+        Size = UDim2.new(1, -20, 0, 22),
+        Position = UDim2.new(0, 10, 0, 5),
+        BackgroundTransparency = 1,
+        Text = title,
+        TextColor3 = Color3.fromRGB(0, 170, 255),
+        TextSize = 15,
+        Font = Enum.Font.GothamBold,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = notif
+    })
     
-    local corner = Instance.new("UICorner", mainFrame)
-    corner.CornerRadius = UDim.new(0, 12)
+    local tText = CreateInstance("TextLabel", {
+        Size = UDim2.new(1, -20, 0, 35),
+        Position = UDim2.new(0, 10, 0, 28),
+        BackgroundTransparency = 1,
+        Text = text,
+        TextColor3 = Color3.fromRGB(200, 200, 200),
+        TextSize = 13,
+        Font = Enum.Font.Gotham,
+        TextWrapped = true,
+        TextXAlignment = Enum.TextXAlignment.Left,
+        Parent = notif
+    })
     
-    local stroke = Instance.new("UIStroke", mainFrame)
-    stroke.Color = color
-    stroke.Thickness = 2
-    stroke.Transparency = 0.5
-    
-    local icon = Instance.new("TextLabel", mainFrame)
-    icon.Size = UDim2.new(0, 36, 0, 36)
-    icon.Position = UDim2.new(0, 12, 0, 12)
-    icon.BackgroundTransparency = 1
-    icon.Text = ntype == "SUCCESS" and "✓" or ntype == "ERROR" and "✕" or ntype == "WARNING" and "⚠" or "ℹ"
-    icon.TextColor3 = color
-    icon.Font = Enum.Font.GothamBold
-    icon.TextSize = 24
-    
-    local titleLabel = Instance.new("TextLabel", mainFrame)
-    titleLabel.Size = UDim2.new(1, -70, 0, 22)
-    titleLabel.Position = UDim2.new(0, 56, 0, 12)
-    titleLabel.BackgroundTransparency = 1
-    titleLabel.Text = title
-    titleLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-    titleLabel.Font = Enum.Font.GothamBold
-    titleLabel.TextSize = 15
-    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
-    
-    local msgLabel = Instance.new("TextLabel", mainFrame)
-    msgLabel.Size = UDim2.new(1, -70, 0, 40)
-    msgLabel.Position = UDim2.new(0, 56, 0, 34)
-    msgLabel.BackgroundTransparency = 1
-    msgLabel.Text = message
-    msgLabel.TextColor3 = Color3.fromRGB(180, 180, 190)
-    msgLabel.Font = Enum.Font.GothamMedium
-    msgLabel.TextSize = 12
-    msgLabel.TextWrapped = true
-    msgLabel.TextXAlignment = Enum.TextXAlignment.Left
-    msgLabel.TextYAlignment = Enum.TextYAlignment.Top
-    
-    TweenService:Create(container, TweenInfo.new(0.5, Enum.EasingStyle.Back), {
-        Position = UDim2.new(1, -12, 1, -12 - (#activeNotifications * 90))
+    TweenService:Create(notif, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+        Position = UDim2.new(1, -340, 1, -90)
     }):Play()
     
-    table.insert(activeNotifications, container)
-    
     task.delay(duration, function()
-        TweenService:Create(container, TweenInfo.new(0.3), {
-            Position = UDim2.new(1, 350, container.Position.Y.Scale, container.Position.Y.Offset)
-        }):Play()
-        task.wait(0.3)
-        container:Destroy()
-        table.remove(activeNotifications, table.find(activeNotifications, container))
+        local tween = TweenService:Create(notif, TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+            Position = UDim2.new(1, 20, 1, -90)
+        })
+        tween:Play()
+        tween.Completed:Connect(function() notif:Destroy() end)
     end)
 end
 
--- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║                     SISTEMA DE CONEXÃO                                     ║
--- ║         Encontra e conecta automaticamente ao Host                           ║
--- ╚══════════════════════════════════════════════════════════════════════════════╝
-local ConnectionSystem = {
-    HostPlayer = nil,
-    RemoteEvents = {},
-    Connected = false,
-    ReconnectAttempts = 0,
-    SyncFolder = nil,
-    ReceivedModels = {}
-}
-
-function ConnectionSystem:FindRemotes()
-    local remotesFolder = ReplicatedStorage:WaitForChild("AGF1_Remotes", 10)
-    if not remotesFolder then
-        return false
-    end
+--// DESERIALIZE (Mesma função do Hub para compatibilidade)
+local function DeserializeModel(data, parent)
+    if not data or not data.ClassName then return nil end
     
-    for _, child in ipairs(remotesFolder:GetChildren()) do
-        if child:IsA("RemoteEvent") then
-            self.RemoteEvents[child.Name] = child
+    local obj
+    pcall(function()
+        if data.ClassName == "Model" then
+            obj = Instance.new("Model")
+            obj.Name = data.Name or "Model"
+            obj.Parent = parent
+        elseif data.ClassName == "Part" or data.ClassName == "WedgePart" or data.ClassName == "CornerWedgePart" or data.ClassName == "UnionOperation" then
+            obj = Instance.new(data.ClassName)
+            obj.Name = data.Name or "Part"
+            if data.Properties then
+                local p = data.Properties
+                if p.Size then obj.Size = Vector3.new(unpack(p.Size)) end
+                if p.Position then obj.Position = Vector3.new(unpack(p.Position)) end
+                if p.Rotation then obj.Rotation = Vector3.new(unpack(p.Rotation)) end
+                if p.Color then obj.Color = Color3.new(unpack(p.Color)) end
+                if p.Material then 
+                    pcall(function() obj.Material = Enum.Material[p.Material] end)
+                end
+                if p.Transparency ~= nil then obj.Transparency = p.Transparency end
+                if p.Reflectance ~= nil then obj.Reflectance = p.Reflectance end
+                if p.CanCollide ~= nil then obj.CanCollide = p.CanCollide end
+                if p.Anchored ~= nil then obj.Anchored = p.Anchored end
+            end
+            obj.Parent = parent
+        elseif data.ClassName == "VehicleSeat" or data.ClassName == "Seat" then
+            obj = Instance.new(data.ClassName)
+            obj.Name = data.Name or "Seat"
+            if data.Properties then
+                local p = data.Properties
+                if p.Position then obj.Position = Vector3.new(unpack(p.Position)) end
+                if p.Rotation then obj.Rotation = Vector3.new(unpack(p.Rotation)) end
+            end
+            obj.Parent = parent
         end
-    end
+        
+        if obj and data.Children then
+            for _, childData in ipairs(data.Children) do
+                DeserializeModel(childData, obj)
+            end
+        end
+    end)
     
-    return next(self.RemoteEvents) ~= nil
+    return obj
 end
 
-function ConnectionSystem:FindHost()
-    -- Método 1: Procurar por jogador que anunciou ser Host via RemoteEvent
-    -- O Host envia um anúncio quando entra no jogo
-    
-    -- Configurar listener para receber anúncio do Host
-    local announceEvent = ReplicatedStorage:FindFirstChild("AGF1_HostAnnounce")
-    if announceEvent then
-        -- Se já existe, conectar para receber futuros anúncios
-        announceEvent.OnClientEvent:Connect(function(hostName, hostUserId)
-            local hostPlayer = Players:FindFirstChild(hostName)
-            if hostPlayer and hostPlayer.UserId == hostUserId then
-                self.HostPlayer = hostPlayer
-                if not self.Connected then
-                    NotificationSystem:Show("🔗 Host Encontrado!", "Conectando a " .. hostName, 3, "INFO")
-                    self:ConnectToHost(hostPlayer)
-                end
-            end
-        end)
-    end
-    
-    -- Método 2: Verificar se já existe pasta de sync do Host na workspace
+--// CLEAR WORKSPACE (Preserva personagem e terreno)
+local function ClearBuild()
     for _, obj in ipairs(Workspace:GetChildren()) do
-        if obj:IsA("Folder") and obj.Name:match("^AGF1_Sync_") then
-            local hostName = obj.Name:gsub("^AGF1_Sync_", "")
-            local hostPlayer = Players:FindFirstChild(hostName)
-            if hostPlayer then
-                return hostPlayer
+        if obj:IsA("BasePart") and obj.Name ~= "Terrain" and obj.Name ~= "CameraLocation" then
+            if not obj:IsDescendantOf(LocalPlayer.Character) then
+                pcall(function() obj:Destroy() end)
+            end
+        elseif obj:IsA("Model") and obj.Name ~= LocalPlayer.Name then
+            if not obj:IsDescendantOf(LocalPlayer.Character) then
+                pcall(function() obj:Destroy() end)
+            end
+        elseif obj:IsA("Folder") and obj.Name ~= "AGF1_Viewer_Preserve" then
+            if not obj:IsDescendantOf(LocalPlayer.Character) then
+                pcall(function() obj:Destroy() end)
             end
         end
     end
-    
-    -- Método 3: Verificar todos os jogadores por atributo (fallback)
-    for _, p in ipairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer then
-            -- Tentar verificar se é host (pode não funcionar por replicação)
-            local success, isHost = pcall(function()
-                return p:GetAttribute("AGF1_IsHost")
-            end)
-            if success and isHost then
-                return p
-            end
-        end
-    end
-    
-    return nil
 end
 
-function ConnectionSystem:ConnectToHost(hostPlayer)
-    if not hostPlayer then
-        NotificationSystem:Show("❌ Erro", "Host não encontrado!", 5, "ERROR")
-        return false
-    end
+--// FREE CAMERA SYSTEM
+local FreeCamActive = false
+local FreeCamConnection = nil
+
+local function StartFreeCam()
+    if FreeCamActive then return end
+    FreeCamActive = true
+    Viewer.FreeCam = true
     
-    self.HostPlayer = hostPlayer
-    NotificationSystem:Show("🔗 Conectando...", "Host encontrado: " .. hostPlayer.Name, 3, "INFO")
+    local camera = Workspace.CurrentCamera
+    Viewer.FreeCamCFrame = camera.CFrame
     
-    -- Configurar listeners de sync ANTES de pedir para entrar
-    self:SetupListeners()
+    local input = {}
+    local velocity = Vector3.new()
+    local rotation = Vector2.new()
     
-    -- Pedir para entrar
-    if self.RemoteEvents.RequestJoin then
-        self.RemoteEvents.RequestJoin:FireServer(hostPlayer)
-    end
+    -- Desabilitar controles normais
+    StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, false)
     
-    -- Pedir sync completo após delay
-    task.delay(2, function()
-        if self.RemoteEvents.RequestFullSync then
-            self.RemoteEvents.RequestFullSync:FireServer(hostPlayer)
+    -- Esconder personagem se existir
+    if LocalPlayer.Character then
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.LocalTransparencyModifier = 1
+            end
         end
+    end
+    
+    FreeCamConnection = RunService.RenderStepped:Connect(function(dt)
+        local speed = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) and Viewer.ShiftSpeed or Viewer.Speed
+        
+        local move = Vector3.new()
+        if UserInputService:IsKeyDown(Enum.KeyCode.W) then move = move + Vector3.new(0, 0, -1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.S) then move = move + Vector3.new(0, 0, 1) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.A) then move = move + Vector3.new(-1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.D) then move = move + Vector3.new(1, 0, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.E) then move = move + Vector3.new(0, 1, 0) end
+        if UserInputService:IsKeyDown(Enum.KeyCode.Q) then move = move + Vector3.new(0, -1, 0) end
+        
+        if move.Magnitude > 0 then
+            move = move.Unit
+        end
+        
+        velocity = velocity:Lerp(move * speed, math.clamp(dt * 10, 0, 1))
+        Viewer.FreeCamCFrame = Viewer.FreeCamCFrame * CFrame.new(velocity * dt)
+        
+        -- Aplicar rotação
+        local mouseDelta = UserInputService:GetMouseDelta()
+        rotation = rotation + Vector2.new(mouseDelta.X, mouseDelta.Y) * Viewer.Sensitivity
+        
+        Viewer.FreeCamCFrame = CFrame.new(Viewer.FreeCamCFrame.Position) 
+            * CFrame.Angles(0, math.rad(-rotation.X), 0) 
+            * CFrame.Angles(math.rad(-rotation.Y), 0, 0)
+        
+        camera.CameraType = Enum.CameraType.Scriptable
+        camera.CFrame = Viewer.FreeCamCFrame
     end)
     
-    self.Connected = true
-    return true
+    Notify("FreeCam", "Modo espectador ativado\nWASD para mover | Q/E para subir/descer | Shift para velocidade", 4)
 end
 
-function ConnectionSystem:SetupListeners()
-    -- Receber modelo novo
-    if self.RemoteEvents.SyncModel then
-        self.RemoteEvents.SyncModel.OnClientEvent:Connect(function(modelData)
-            ModelReceiver:ReceiveModel(modelData)
-        end)
+local function StopFreeCam()
+    if not FreeCamActive then return end
+    FreeCamActive = false
+    Viewer.FreeCam = false
+    
+    if FreeCamConnection then
+        FreeCamConnection:Disconnect()
+        FreeCamConnection = nil
     end
     
-    -- Deletar modelo
-    if self.RemoteEvents.DeleteModel then
-        self.RemoteEvents.DeleteModel.OnClientEvent:Connect(function(modelId)
-            ModelReceiver:DeleteModel(modelId)
-        end)
-    end
+    StarterGui:SetCoreGuiEnabled(Enum.CoreGuiType.All, true)
     
-    -- Atualizar posição
-    if self.RemoteEvents.UpdateTransform then
-        self.RemoteEvents.UpdateTransform.OnClientEvent:Connect(function(modelId, transform)
-            ModelReceiver:UpdateTransform(modelId, transform)
-        end)
-    end
-    
-    -- Sync completo
-    if self.RemoteEvents.SyncBuild then
-        self.RemoteEvents.SyncBuild.OnClientEvent:Connect(function(buildData)
-            ModelReceiver:ReceiveFullBuild(buildData)
-        end)
-    end
-    
-    -- Novo viewer entrou (apenas informativo)
-    if self.RemoteEvents.ViewerJoined then
-        self.RemoteEvents.ViewerJoined.OnClientEvent:Connect(function(viewerName)
-            NotificationSystem:Show("👤 Novo Viewer", viewerName .. " conectou-se", 3, "INFO")
-        end)
-    end
-end
-
-function ConnectionSystem:AttemptReconnect()
-    if self.ReconnectAttempts >= CONFIG.MAX_RECONNECT_ATTEMPTS then
-        NotificationSystem:Show("❌ Falha", "Não foi possível conectar ao Host", 5, "ERROR")
-        return
-    end
-    
-    self.ReconnectAttempts = self.ReconnectAttempts + 1
-    NotificationSystem:Show("🔄 Reconectando...", "Tentativa " .. self.ReconnectAttempts .. "/" .. CONFIG.MAX_RECONNECT_ATTEMPTS, 2, "WARNING")
-    
-    task.delay(3, function()
-        local host = self:FindHost()
-        if host then
-            self:ConnectToHost(host)
-        else
-            self:AttemptReconnect()
+    if LocalPlayer.Character then
+        local humanoid = LocalPlayer.Character:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            Workspace.CurrentCamera.CameraType = Enum.CameraType.Custom
+            Workspace.CurrentCamera.CameraSubject = humanoid
         end
-    end)
+        
+        for _, part in ipairs(LocalPlayer.Character:GetDescendants()) do
+            if part:IsA("BasePart") then
+                part.LocalTransparencyModifier = 0
+            end
+        end
+    end
+    
+    Notify("FreeCam", "Modo espectador desativado", 2)
 end
 
-function ConnectionSystem:Initialize()
-    NotificationSystem:Show("🚀 Viewer Client", "v" .. CONFIG.VERSION .. " Iniciando...", 3, "INFO")
-    
-    -- Tentar encontrar Remotes
-    local foundRemotes = self:FindRemotes()
-    
-    if not foundRemotes then
-        NotificationSystem:Show("⏳ Aguardando...", "Aguardando Host criar servidor...", 5, "INFO")
-        
-        -- Aguardar pasta de Remotes ser criada
-        local connection
-        connection = ReplicatedStorage.ChildAdded:Connect(function(child)
-            if child.Name == "AGF1_Remotes" then
-                connection:Disconnect()
-                self:FindRemotes()
-                
-                -- Agora tentar encontrar Host
-                task.delay(1, function()
-                    local host = self:FindHost()
-                    if host then
-                        self:ConnectToHost(host)
-                    else
-                        self:AttemptReconnect()
-                    end
-                end)
-            end
-        end)
-        
-        -- Timeout de 30 segundos
-        task.delay(30, function()
-            if connection.Connected then
-                connection:Disconnect()
-                if not self.Connected then
-                    NotificationSystem:Show("❌ Timeout", "Nenhum Host encontrado", 5, "ERROR")
-                end
-            end
-        end)
+--// GUI DO VIEWER
+local ScreenGui = CreateInstance("ScreenGui", {
+    Name = "AGF1_Viewer_GUI",
+    ResetOnSpawn = false,
+    ZIndexBehavior = Enum.ZIndexBehavior.Sibling,
+    Parent = PlayerGui
+})
+
+local MainFrame = CreateInstance("Frame", {
+    Name = "MainFrame",
+    Size = UDim2.new(0, 350, 0, 200),
+    Position = UDim2.new(0, 20, 0, 20),
+    BackgroundColor3 = Color3.fromRGB(25, 25, 30),
+    BorderSizePixel = 0,
+    Parent = ScreenGui
+})
+CreateInstance("UICorner", {CornerRadius = UDim.new(0, 10), Parent = MainFrame})
+CreateInstance("UIStroke", {Color = Color3.fromRGB(0, 170, 255), Thickness = 1, Parent = MainFrame})
+
+local TitleBar = CreateInstance("Frame", {
+    Size = UDim2.new(1, 0, 0, 35),
+    BackgroundColor3 = Color3.fromRGB(30, 30, 40),
+    BorderSizePixel = 0,
+    Parent = MainFrame
+})
+CreateInstance("UICorner", {CornerRadius = UDim.new(0, 10), Parent = TitleBar})
+
+local TitleText = CreateInstance("TextLabel", {
+    Size = UDim2.new(1, -80, 1, 0),
+    Position = UDim2.new(0, 12, 0, 0),
+    BackgroundTransparency = 1,
+    Text = "AGF1 Viewer v1.0",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextSize = 16,
+    Font = Enum.Font.GothamBold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = TitleBar
+})
+
+local StatusIndicator = CreateInstance("Frame", {
+    Size = UDim2.new(0, 12, 0, 12),
+    Position = UDim2.new(1, -60, 0, 11),
+    BackgroundColor3 = Color3.fromRGB(255, 50, 50),
+    BorderSizePixel = 0,
+    Parent = TitleBar
+})
+CreateInstance("UICorner", {CornerRadius = UDim.new(1, 0), Parent = StatusIndicator})
+
+local StatusText = CreateInstance("TextLabel", {
+    Size = UDim2.new(0, 40, 0, 20),
+    Position = UDim2.new(1, -45, 0, 7),
+    BackgroundTransparency = 1,
+    Text = "OFF",
+    TextColor3 = Color3.fromRGB(255, 100, 100),
+    TextSize = 12,
+    Font = Enum.Font.GothamBold,
+    Parent = TitleBar
+})
+
+local CloseBtn = CreateInstance("TextButton", {
+    Size = UDim2.new(0, 28, 0, 28),
+    Position = UDim2.new(1, -32, 0, 3),
+    BackgroundColor3 = Color3.fromRGB(255, 70, 70),
+    Text = "X",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextSize = 14,
+    Font = Enum.Font.GothamBold,
+    Parent = TitleBar
+})
+CreateInstance("UICorner", {CornerRadius = UDim.new(0, 6), Parent = CloseBtn})
+
+local Content = CreateInstance("Frame", {
+    Size = UDim2.new(1, -20, 1, -50),
+    Position = UDim2.new(0, 10, 0, 42),
+    BackgroundTransparency = 1,
+    Parent = MainFrame
+})
+
+local HostLabel = CreateInstance("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 20),
+    BackgroundTransparency = 1,
+    Text = "Host: Procurando...",
+    TextColor3 = Color3.fromRGB(200, 200, 200),
+    TextSize = 13,
+    Font = Enum.Font.GothamSemibold,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = Content
+})
+
+local PartsLabel = CreateInstance("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 20),
+    Position = UDim2.new(0, 0, 0, 22),
+    BackgroundTransparency = 1,
+    Text = "Parts: 0",
+    TextColor3 = Color3.fromRGB(150, 150, 150),
+    TextSize = 12,
+    Font = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = Content
+})
+
+local SyncLabel = CreateInstance("TextLabel", {
+    Size = UDim2.new(1, 0, 0, 20),
+    Position = UDim2.new(0, 0, 0, 42),
+    BackgroundTransparency = 1,
+    Text = "Ultimo Sync: Nunca",
+    TextColor3 = Color3.fromRGB(150, 150, 150),
+    TextSize = 12,
+    Font = Enum.Font.Gotham,
+    TextXAlignment = Enum.TextXAlignment.Left,
+    Parent = Content
+})
+
+local FreeCamBtn = CreateInstance("TextButton", {
+    Size = UDim2.new(1, 0, 0, 32),
+    Position = UDim2.new(0, 0, 0, 72),
+    BackgroundColor3 = Color3.fromRGB(0, 100, 200),
+    Text = "Ativar FreeCam",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextSize = 14,
+    Font = Enum.Font.GothamBold,
+    Parent = Content
+})
+CreateInstance("UICorner", {CornerRadius = UDim.new(0, 6), Parent = FreeCamBtn})
+
+local DisconnectBtn = CreateInstance("TextButton", {
+    Size = UDim2.new(1, 0, 0, 32),
+    Position = UDim2.new(0, 0, 0, 110),
+    BackgroundColor3 = Color3.fromRGB(200, 50, 50),
+    Text = "Desconectar",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextSize = 14,
+    Font = Enum.Font.GothamBold,
+    Parent = Content
+})
+CreateInstance("UICorner", {CornerRadius = UDim.new(0, 6), Parent = DisconnectBtn})
+
+local MinimizeBtn = CreateInstance("TextButton", {
+    Size = UDim2.new(0, 30, 0, 30),
+    Position = UDim2.new(1, -65, 0, 2),
+    BackgroundTransparency = 1,
+    Text = "-",
+    TextColor3 = Color3.fromRGB(255, 255, 255),
+    TextSize = 20,
+    Font = Enum.Font.GothamBold,
+    Parent = TitleBar
+})
+
+--// DRAG SYSTEM
+local dragging = false
+local dragInput = nil
+local dragStart = nil
+local startPos = nil
+
+TitleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
+        dragStart = input.Position
+        startPos = MainFrame.Position
+    end
+end)
+
+TitleBar.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement then
+        dragInput = input
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if input == dragInput and dragging then
+        local delta = input.Position - dragStart
+        MainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+    end
+end)
+
+TitleBar.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+
+--// CONNECTION LOGIC
+local function SetConnected(connected, hostName)
+    Viewer.Connected = connected
+    if connected then
+        StatusIndicator.BackgroundColor3 = Color3.fromRGB(50, 255, 50)
+        StatusText.Text = "ON"
+        StatusText.TextColor3 = Color3.fromRGB(100, 255, 100)
+        HostLabel.Text = "Host: " .. (hostName or "Conectado")
+        Notify("Conectado", "Visualizando build de: " .. (hostName or "Host"), 3)
     else
-        -- Remotes já existem, tentar conectar
-        task.delay(1, function()
-            local host = self:FindHost()
-            if host then
-                self:ConnectToHost(host)
-            else
-                -- Host ainda não anunciou, aguardar
-                NotificationSystem:Show("⏳ Aguardando Host...", "Procurando builder...", 3, "INFO")
-                self:AttemptReconnect()
-            end
-        end)
+        StatusIndicator.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
+        StatusText.Text = "OFF"
+        StatusText.TextColor3 = Color3.fromRGB(255, 100, 100)
+        HostLabel.Text = "Host: Desconectado"
+        Viewer.HostPlayer = nil
+    end
+end
+
+local function ConnectToHost(hostPlayer)
+    if Viewer.Connected then return end
+    
+    Viewer.HostPlayer = hostPlayer
+    SetConnected(true, hostPlayer.Name)
+    
+    -- Notificar Host que viewer entrou
+    ViewerJoinRemote:FireServer(hostPlayer)
+    
+    -- Solicitar build atual
+    task.delay(1, function()
+        if Viewer.Connected and Viewer.HostPlayer then
+            RequestModelRemote:FireServer(Viewer.HostPlayer)
+        end
+    end)
+end
+
+local function Disconnect()
+    if not Viewer.Connected then return end
+    
+    if Viewer.HostPlayer then
+        ViewerLeaveRemote:FireServer(Viewer.HostPlayer)
     end
     
-    -- Ouvir novos jogadores (Host pode entrar depois)
-    Players.PlayerAdded:Connect(function(newPlayer)
-        -- Verificar se é Host quando entrar
-        task.delay(2, function()
-            if not self.Connected then
-                -- Verificar pasta de sync
-                local syncFolder = Workspace:FindFirstChild("AGF1_Sync_" .. newPlayer.Name)
-                if syncFolder then
-                    self:ConnectToHost(newPlayer)
-                    return
+    SetConnected(false)
+    ClearBuild()
+    StopFreeCam()
+    Notify("Desconectado", "Sessão de visualização encerrada", 3)
+end
+
+--// REMOTE EVENT HANDLERS
+
+-- Host anunciando disponibilidade
+HostAnnounceRemote.OnClientEvent:Connect(function(player, message)
+    if player == LocalPlayer then return end
+    if message == "HOST_ANNOUNCE" and not Viewer.Connected then
+        -- Auto-conectar ao primeiro Host encontrado
+        ConnectToHost(player)
+    end
+end)
+
+-- Recebendo sync de modelos
+SyncModelRemote.OnClientEvent:Connect(function(player, modelData)
+    if not Viewer.Connected then return end
+    if Viewer.HostPlayer and player ~= Viewer.HostPlayer then return end
+    
+    local success, data = pcall(function()
+        return HttpService:JSONDecode(modelData)
+    end)
+    
+    if success and data then
+        ClearBuild()
+        local count = 0
+        
+        if typeof(data) == "table" then
+            for _, partData in ipairs(data) do
+                local obj = DeserializeModel(partData, Workspace)
+                if obj then
+                    count = count + 1
                 end
-                
-                -- Tentar atributo
-                local success, isHost = pcall(function()
-                    return newPlayer:GetAttribute("AGF1_IsHost")
-                end)
-                if success and isHost then
-                    self:ConnectToHost(newPlayer)
-                end
             end
-        end)
-    end)
-end
-
--- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║                     SISTEMA DE RECEBIMENTO DE MODELOS                        ║
--- ╚══════════════════════════════════════════════════════════════════════════════╝
-local ModelReceiver = {
-    Models = {},
-    SyncFolder = nil
-}
-
-function ModelReceiver:GetSyncFolder()
-    if not self.SyncFolder then
-        self.SyncFolder = Workspace:FindFirstChild("AGF1_View_" .. LocalPlayer.Name)
-        if not self.SyncFolder then
-            self.SyncFolder = Instance.new("Folder")
-            self.SyncFolder.Name = "AGF1_View_" .. LocalPlayer.Name
-            self.SyncFolder.Parent = Workspace
         end
+        
+        Viewer.ReceivedParts = count
+        Viewer.LastSync = tick()
+        PartsLabel.Text = "Parts: " .. count
+        SyncLabel.Text = "Ultimo Sync: " .. os.date("%H:%M:%S")
+        
+        Notify("Sync", "Build atualizado: " .. count .. " partes recebidas", 2)
     end
-    return self.SyncFolder
-end
+end)
 
-function ModelReceiver:ReceiveModel(modelData)
-    if not modelData or not modelData.id then return end
-    
-    -- Verificar se já existe
-    if self.Models[modelData.id] then
-        self:UpdateModel(modelData.id, modelData)
-        return
-    end
-    
-    -- Criar modelo
-    local model = Instance.new("Model")
-    model.Name = modelData.name .. "_View"
-    model:SetAttribute("AGF1_ModelId", modelData.id)
-    model:SetAttribute("AGF1_IsRemote", true)
-    model:SetAttribute("AGF1_Timestamp", modelData.timestamp or os.time())
-    
-    -- Criar partes
-    for _, partData in ipairs(modelData.parts or {}) do
-        local part = self:CreatePart(partData)
-        part.Parent = model
-    end
-    
-    -- Aplicar CFrame
-    if modelData.pivot then
-        local pivot = CFrame.new(unpack(modelData.pivot))
-        model:PivotTo(pivot)
-    end
-    
-    -- Parentear
-    model.Parent = self:GetSyncFolder()
-    
-    -- Adicionar highlight azul (indicando visualização)
-    local highlight = Instance.new("Highlight")
-    highlight.Name = "ViewerHighlight"
-    highlight.Adornee = model
-    highlight.FillColor = CONFIG.THEME.primary
-    highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
-    highlight.FillTransparency = 0.9
-    highlight.OutlineTransparency = 0.3
-    highlight.Parent = model
-    
-    -- Salvar referência
-    self.Models[modelData.id] = model
-    
-    NotificationSystem:Show("📥 Modelo", modelData.name .. " recebido", 2, "INFO")
-end
-
-function ModelReceiver:CreatePart(partData)
-    local part = Instance.new("Part")
-    part.Name = partData.name or "Part"
-    part.Size = Vector3.new(unpack(partData.size or {1, 1, 1}))
-    part.Position = Vector3.new(unpack(partData.position or {0, 0, 0}))
-    part.Orientation = Vector3.new(unpack(partData.orientation or {0, 0, 0}))
-    part.Color = Color3.new(unpack(partData.color or {1, 1, 1}))
-    part.Material = Enum.Material[partData.material] or Enum.Material.SmoothPlastic
-    part.Transparency = partData.transparency or 0
-    part.Anchored = true
-    part.CanCollide = true
-    part.CanTouch = false
-    part.CanQuery = true
-    part.Locked = true -- Impedir edição
-    
-    -- Forma
-    if partData.shape == "Cylinder" then
-        part.Shape = Enum.PartType.Cylinder
-    elseif partData.shape == "Ball" then
-        part.Shape = Enum.PartType.Ball
-    end
-    
-    return part
-end
-
-function ModelReceiver:UpdateModel(modelId, modelData)
-    local model = self.Models[modelId]
-    if not model then return end
-    
-    -- Atualizar CFrame
-    if modelData.pivot then
-        local pivot = CFrame.new(unpack(modelData.pivot))
-        model:PivotTo(pivot)
-    end
-end
-
-function ModelReceiver:UpdateTransform(modelId, transform)
-    local model = self.Models[modelId]
-    if not model then return end
-    
-    local newCFrame = CFrame.new(unpack(transform))
-    model:PivotTo(newCFrame)
-end
-
-function ModelReceiver:DeleteModel(modelId)
-    local model = self.Models[modelId]
-    if model then
-        model:Destroy()
-        self.Models[modelId] = nil
-    end
-end
-
-function ModelReceiver:ReceiveFullBuild(buildData)
-    if not buildData or not buildData.models then return end
-    
-    -- Limpar modelos antigos
-    self:ClearAll()
-    
-    -- Carregar todos
-    for _, modelData in ipairs(buildData.models) do
-        self:ReceiveModel(modelData)
-    end
-    
-    NotificationSystem:Show("📦 Sync Completo", 
-        #buildData.models .. " modelos de " .. (buildData.hostName or "Host"), 
-        5, "SUCCESS")
-end
-
-function ModelReceiver:ClearAll()
-    for id, model in pairs(self.Models) do
-        if model then
-            model:Destroy()
-        end
-    end
-    self.Models = {}
-    
-    if self.SyncFolder then
-        self.SyncFolder:ClearAllChildren()
-    end
-end
-
-function ModelReceiver:GetStats()
-    local count = 0
-    local parts = 0
-    for _, model in pairs(self.Models) do
-        count = count + 1
-        parts = parts + #model:GetDescendants()
-    end
-    return count, parts
-end
-
--- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║                     INTERFACE DO VIEWER                                      ║
--- ╚══════════════════════════════════════════════════════════════════════════════╝
-local ViewerUI = {
-    Gui = nil,
-    Visible = true
-}
-
-function ViewerUI:Create()
-    local gui = Instance.new("ScreenGui")
-    gui.Name = "AGF1_ViewerClientUI"
-    gui.ResetOnSpawn = false
-    gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-    gui.Parent = CoreGui
-    
-    -- Frame principal
-    local mainFrame = Instance.new("Frame")
-    mainFrame.Name = "MainFrame"
-    mainFrame.Size = UDim2.new(0, 320, 0, 180)
-    mainFrame.Position = UDim2.new(0, 20, 0, 20)
-    mainFrame.BackgroundColor3 = CONFIG.THEME.background
-    mainFrame.BackgroundTransparency = 0.05
-    mainFrame.BorderSizePixel = 0
-    mainFrame.Parent = gui
-    
-    local corner = Instance.new("UICorner", mainFrame)
-    corner.CornerRadius = UDim.new(0, 16)
-    
-    local stroke = Instance.new("UIStroke", mainFrame)
-    stroke.Color = CONFIG.THEME.primary
-    stroke.Thickness = 2
-    stroke.Transparency = 0.3
-    
-    -- Header
-    local header = Instance.new("Frame", mainFrame)
-    header.Size = UDim2.new(1, 0, 0, 45)
-    header.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
-    header.BackgroundTransparency = 0.3
-    header.BorderSizePixel = 0
-    
-    local headerCorner = Instance.new("UICorner", header)
-    headerCorner.CornerRadius = UDim.new(0, 16)
-    
-    local headerBottom = Instance.new("Frame", header)
-    headerBottom.Size = UDim2.new(1, 0, 0, 20)
-    headerBottom.Position = UDim2.new(0, 0, 1, -20)
-    headerBottom.BackgroundColor3 = Color3.fromRGB(0, 150, 200)
-    headerBottom.BackgroundTransparency = 0.3
-    headerBottom.BorderSizePixel = 0
-    
-    local title = Instance.new("TextLabel", header)
-    title.Size = UDim2.new(1, -20, 0, 30)
-    title.Position = UDim2.new(0, 15, 0, 8)
-    title.BackgroundTransparency = 1
-    title.Text = "👁️ VIEWER CLIENT v" .. CONFIG.VERSION
-    title.TextColor3 = CONFIG.THEME.accent
-    title.Font = Enum.Font.GothamBlack
-    title.TextSize = 16
-    title.TextXAlignment = Enum.TextXAlignment.Left
-    
-    -- Status
-    local statusFrame = Instance.new("Frame", mainFrame)
-    statusFrame.Size = UDim2.new(1, -30, 0, 90)
-    statusFrame.Position = UDim2.new(0, 15, 0, 55)
-    statusFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 35)
-    statusFrame.BackgroundTransparency = 0.5
-    statusFrame.BorderSizePixel = 0
-    
-    local statusCorner = Instance.new("UICorner", statusFrame)
-    statusCorner.CornerRadius = UDim.new(0, 12)
-    
-    local statusText = Instance.new("TextLabel", statusFrame)
-    statusText.Name = "StatusText"
-    statusText.Size = UDim2.new(1, -20, 1, -20)
-    statusText.Position = UDim2.new(0, 10, 0, 10)
-    statusText.BackgroundTransparency = 1
-    statusText.Text = "Status: Inicializando...\nHost: Procurando...\nModelos: 0 | Partes: 0"
-    statusText.TextColor3 = Color3.fromRGB(200, 200, 200)
-    statusText.Font = Enum.Font.GothamMedium
-    statusText.TextSize = 13
-    statusText.TextWrapped = true
-    statusText.TextXAlignment = Enum.TextXAlignment.Left
-    statusText.TextYAlignment = Enum.TextYAlignment.Top
-    
-    -- Botões
-    local buttonFrame = Instance.new("Frame", mainFrame)
-    buttonFrame.Size = UDim2.new(1, -30, 0, 35)
-    buttonFrame.Position = UDim2.new(0, 15, 1, -45)
-    buttonFrame.BackgroundTransparency = 1
-    
-    local buttonLayout = Instance.new("UIListLayout", buttonFrame)
-    buttonLayout.FillDirection = Enum.FillDirection.Horizontal
-    buttonLayout.Padding = UDim.new(0, 10)
-    buttonLayout.HorizontalAlignment = Enum.HorizontalAlignment.Center
-    
-    -- Botão FreeCam
-    local freeCamBtn = Instance.new("TextButton")
-    freeCamBtn.Size = UDim2.new(0, 130, 1, 0)
-    freeCamBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 150)
-    freeCamBtn.Text = "📷 FreeCam (F4)"
-    freeCamBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    freeCamBtn.Font = Enum.Font.GothamBold
-    freeCamBtn.TextSize = 12
-    freeCamBtn.Parent = buttonFrame
-    
-    local btnCorner1 = Instance.new("UICorner", freeCamBtn)
-    btnCorner1.CornerRadius = UDim.new(0, 8)
-    
-    -- Botão Limpar
-    local clearBtn = Instance.new("TextButton")
-    clearBtn.Size = UDim2.new(0, 130, 1, 0)
-    clearBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
-    clearBtn.Text = "🗑️ Limpar (F5)"
-    clearBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-    clearBtn.Font = Enum.Font.GothamBold
-    clearBtn.TextSize = 12
-    clearBtn.Parent = buttonFrame
-    
-    local btnCorner2 = Instance.new("UICorner", clearBtn)
-    btnCorner2.CornerRadius = UDim.new(0, 8)
-    
-    -- Ações dos botões
-    freeCamBtn.MouseButton1Click:Connect(function()
-        FreeCamSystem:Toggle()
-    end)
-    
-    clearBtn.MouseButton1Click:Connect(function()
-        ModelReceiver:ClearAll()
-        NotificationSystem:Show("🗑️ Limpo", "Todos os modelos removidos", 2, "INFO")
-    end)
-    
-    -- Atualização automática do status
-    task.spawn(function()
-        while statusText and statusText.Parent do
-            local modelCount, partCount = ModelReceiver:GetStats()
-            local hostName = ConnectionSystem.HostPlayer and ConnectionSystem.HostPlayer.Name or "Nenhum"
-            local status = ConnectionSystem.Connected and "✅ Conectado" or "⏳ Aguardando..."
-            
-            statusText.Text = string.format(
-                "Status: %s\nHost: %s\nModelos: %d | Partes: %d\nPing: %dms",
-                status,
-                hostName,
-                modelCount,
-                partCount,
-                math.random(20, 80) -- Simulado, em produção seria real
-            )
-            task.wait(1)
-        end
-    end)
-    
-    self.Gui = gui
-    self.StatusText = statusText
-    return gui
-end
-
-function ViewerUI:Toggle()
-    self.Visible = not self.Visible
-    if self.Gui then
-        self.Gui.Enabled = self.Visible
-    end
-end
-
--- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║                     SISTEMA DE CÂMERA LIVRE                                  ║
--- ╚══════════════════════════════════════════════════════════════════════════════╝
-local FreeCamSystem = {
-    Enabled = false,
-    Pos = Vector3.new(0, 50, 0),
-    Rot = Vector2.new(0, 0),
-    Connection = nil,
-    Speed = CONFIG.FREE_CAM_SPEED
-}
-
-function FreeCamSystem:Toggle()
-    if self.Enabled then
-        self:Disable()
+--// BUTTON HANDLERS
+FreeCamBtn.MouseButton1Click:Connect(function()
+    if FreeCamActive then
+        StopFreeCam()
+        FreeCamBtn.Text = "Ativar FreeCam"
+        FreeCamBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
     else
-        self:Enable()
+        StartFreeCam()
+        FreeCamBtn.Text = "Desativar FreeCam"
+        FreeCamBtn.BackgroundColor33 = Color3.fromRGB(200, 100, 0)
     end
-end
+end)
 
-function FreeCamSystem:Enable()
-    if self.Enabled then return end
-    
-    self.Enabled = true
-    self.Pos = Camera.CFrame.Position
-    
-    Camera.CameraType = Enum.CameraType.Scriptable
-    
-    local lastMousePos = UserInputService:GetMouseLocation()
-    
-    self.Connection = RunService.RenderStepped:Connect(function(dt)
-        if not self.Enabled then return end
-        
-        -- Movimento WASD
-        local moveVec = Vector3.new()
-        if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-            moveVec = moveVec + Camera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-            moveVec = moveVec - Camera.CFrame.LookVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-            moveVec = moveVec - Camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-            moveVec = moveVec + Camera.CFrame.RightVector
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.E) then
-            moveVec = moveVec + Vector3.new(0, 1, 0)
-        end
-        if UserInputService:IsKeyDown(Enum.KeyCode.Q) then
-            moveVec = moveVec - Vector3.new(0, 1, 0)
-        end
-        
-        -- Velocidade
-        local speed = UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) 
-            and CONFIG.FREE_CAM_FAST_SPEED 
-            or CONFIG.FREE_CAM_SPEED
-        
-        if moveVec.Magnitude > 0 then
-            self.Pos = self.Pos + (moveVec.Unit * speed * dt)
-        end
-        
-        -- Rotação com mouse direito
-        if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseRight) then
-            local currentPos = UserInputService:GetMouseLocation()
-            local delta = currentPos - lastMousePos
-            self.Rot = self.Rot + Vector2.new(delta.X, delta.Y) * 0.3
-            lastMousePos = currentPos
-        else
-            lastMousePos = UserInputService:GetMouseLocation()
-        end
-        
-        -- Aplicar CFrame
-        Camera.CFrame = CFrame.new(self.Pos) 
-            * CFrame.Angles(0, math.rad(self.Rot.X), 0) 
-            * CFrame.Angles(math.rad(math.clamp(self.Rot.Y, -80, 80)), 0, 0)
-    end)
-    
-    NotificationSystem:Show("📷 Câmera Livre", 
-        "WASD: Mover | Q/E: Subir/Descer | Shift: Rápido | F4: Desligar", 
-        4, "INFO")
-end
+DisconnectBtn.MouseButton1Click:Connect(Disconnect)
 
-function FreeCamSystem:Disable()
-    self.Enabled = false
-    if self.Connection then
-        self.Connection:Disconnect()
-        self.Connection = nil
-    end
-    Camera.CameraType = Enum.CameraType.Custom
-    NotificationSystem:Show("📷 Câmera", "Câmera livre desativada", 2, "INFO")
-end
+CloseBtn.MouseButton1Click:Connect(function()
+    Disconnect()
+    ScreenGui:Destroy()
+end)
 
--- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║                     ATALHOS DE TECLADO                                       ║
--- ╚══════════════════════════════════════════════════════════════════════════════╝
+local minimized = false
+MinimizeBtn.MouseButton1Click:Connect(function()
+    minimized = not minimized
+    Content.Visible = not minimized
+    MainFrame.Size = minimized and UDim2.new(0, 350, 0, 35) or UDim2.new(0, 350, 0, 200)
+end)
+
+--// TECLAS
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
     if gameProcessed then return end
     
+    if input.KeyCode == Enum.KeyCode.F4 then
+        if FreeCamActive then
+            StopFreeCam()
+            FreeCamBtn.Text = "Ativar FreeCam"
+            FreeCamBtn.BackgroundColor3 = Color3.fromRGB(0, 100, 200)
+        else
+            StartFreeCam()
+            FreeCamBtn.Text = "Desativar FreeCam"
+            FreeCamBtn.BackgroundColor3 = Color3.fromRGB(200, 100, 0)
+        end
+    end
+    
     if input.KeyCode == Enum.KeyCode.F3 then
-        ViewerUI:Toggle()
-    elseif input.KeyCode == Enum.KeyCode.F4 then
-        FreeCamSystem:Toggle()
-    elseif input.KeyCode == Enum.KeyCode.F5 then
-        ModelReceiver:ClearAll()
-        NotificationSystem:Show("🗑️ Limpo", "Modelos removidos", 2, "INFO")
-    elseif input.KeyCode == Enum.KeyCode.F6 then
-        -- Recentralizar no host
-        if ConnectionSystem.HostPlayer and ConnectionSystem.HostPlayer.Character then
-            FreeCamSystem:Disable()
-            local hrp = ConnectionSystem.HostPlayer.Character:FindFirstChild("HumanoidRootPart")
-            if hrp then
-                Camera.CFrame = CFrame.new(hrp.Position + Vector3.new(0, 20, 30), hrp.Position)
+        MainFrame.Visible = not MainFrame.Visible
+    end
+end)
+
+--// AUTO-DISCOVERY LOOP
+task.spawn(function()
+    while true do
+        task.wait(3)
+        
+        -- Se não estiver conectado, procurar Host
+        if not Viewer.Connected then
+            -- Verificar se há algum host na sessão
+            -- O Host deve ter anunciado via HostAnnounceRemote
+            -- Se nada acontecer em 10s, tentar broadcast
+            if tick() % 10 < 3 then
+                -- Enviar pedido de descoberta
+                ViewerJoinRemote:FireServer("DISCOVER_HOSTS")
             end
+        end
+        
+        -- Atualizar UI
+        if Viewer.Connected and Viewer.LastSync > 0 then
+            local elapsed = math.floor(tick() - Viewer.LastSync)
+            SyncLabel.Text = "Ultimo Sync: " .. elapsed .. "s atrás"
         end
     end
 end)
 
--- ╔══════════════════════════════════════════════════════════════════════════════╗
--- ║                     INICIALIZAÇÃO                                            ║
--- ╚══════════════════════════════════════════════════════════════════════════════╝
-local function Initialize()
-    -- Criar UI
-    ViewerUI:Create()
+--// INIT
+task.delay(1, function()
+    Notify("Viewer Client", "Procurando Host... Aguarde o builder iniciar o Host Mode.", 4)
     
-    -- Iniciar conexão
-    ConnectionSystem:Initialize()
-    
-    -- Mensagem inicial
-    print("[AGF1 Viewer] Client v" .. CONFIG.VERSION .. " carregado")
-    print("[AGF1 Viewer] Controles: F3=UI | F4=FreeCam | F5=Limpar | F6=Host")
-end
+    -- Tentar encontrar host já existente
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            -- Não podemos ver atributos, mas podemos esperar anúncio
+            break
+        end
+    end
+end)
 
--- Aguardar personagem carregar
-if LocalPlayer.Character then
-    Initialize()
-else
-    LocalPlayer.CharacterAdded:Connect(function()
-        task.delay(1, Initialize)
-    end)
-end
-
--- Exportar global para debug
-getgenv().AGF1_Viewer = {
-    Config = CONFIG,
-    Connection = ConnectionSystem,
-    Models = ModelReceiver,
-    UI = ViewerUI,
-    FreeCam = FreeCamSystem,
-    Notify = NotificationSystem
-}
+print("[AGF1 Viewer] Client v1.0 carregado | Aguardando Host...")
